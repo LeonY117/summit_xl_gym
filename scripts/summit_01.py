@@ -257,8 +257,8 @@ class summit(VecTask):
 
             # add actor
             initial_pose = gymapi.Transform()
-            initial_pose.p = gymapi.Vec3(-7.5, 0, 2.5)
-            initial_pose.r = gymapi.Quat(-1.0, 0.0, 0.0, 1.0)
+            initial_pose.p = gymapi.Vec3(-7.5, 2.5, 0.)
+            initial_pose.r = gymapi.Quat(0., 0., -1., 1.)
 
             actor_handle = self.gym.create_actor(
                 env, self.gym_assets['robot'], initial_pose, 'summit', i, 0)
@@ -266,36 +266,46 @@ class summit(VecTask):
 
             # add box
             box_handle = self.gym.create_actor(env, self.gym_assets['boxes'][0], gymapi.Transform(
-                p=gymapi.Vec3(-5., box_width/2, -2.5)), 'box', i, 0)
+                p=gymapi.Vec3(-7.5, -1, box_width/2)), 'box', i, 0)
             self.box_handles.append(box_handle)
 
-            box_props = self.gym.get_actor_rigid_shape_properties(
+            # for each box:
+            box_shape_props = self.gym.get_actor_rigid_shape_properties(
                 env, box_handle)
             # change properties
-            box_props[0].compliance = 0.
-            box_props[0].friction = 0.1
-            box_props[0].rolling_friction = 0.
-            box_props[0].torsion_friction = 0.
+            box_shape_props[0].compliance = 0.
+            box_shape_props[0].friction = 0.1
+            box_shape_props[0].rolling_friction = 0.
+            box_shape_props[0].torsion_friction = 0.
             self.gym.set_actor_rigid_shape_properties(
-                env, box_handle, box_props)
+                env, box_handle, box_shape_props)
+
+            box_body_props = self.gym.get_actor_rigid_body_properties(
+                env, box_handle)
+            box_body_props[0].mass *= 10
+            self.gym.set_actor_rigid_body_properties(
+                env, box_handle, box_body_props)
 
             # Add walls
-            for (i, wall) in enumerate(room_walls):
-                wall_name = wall['name']
-                wall_thickness = wall['thickness']
-                wall_length = wall['length']
-                wall_orientation = wall['orientation']
-                wall_pos = wall['pos']
+            for obj in room_walls:
+                for (name, wall) in obj.items():
+                    wall_name = name
+                    wall_thickness = wall_thickness
+                    wall_length = wall['length']
+                    wall_orientation = wall['orientation']
+                    wall_pos_x = wall['pos_x']
+                    wall_pos_y = wall['pos_y']
 
-                pos = gymapi.Transform()
-                pos.p = gymapi.Vec3(wall_pos[0], 1.0, wall_pos[1])
-                if wall_orientation == 'horizontal':
-                    pos.r = gymapi.Quat(-1.0, 0.0, 1.0, 0.0)
+                    pos = gymapi.Transform()
+                    pos.p = gymapi.Vec3(wall_pos_x, wall_pos_y, 1.0)
 
-                wall_handle = self.gym.create_actor(
-                    env, self.gym_assets['walls'][wall_length], pos, wall_name, i, 0
-                )
-                self.wall_handles.append(wall_handle)
+                    if wall_orientation == 'horizontal':
+                        pos.r = gymapi.Quat(1.0, -1.0, 0.0, 0.0)
+
+                    wall_handle = self.gym.create_actor(
+                        env, self.gym_assets['walls'][wall_length], pos, wall_name, i, 0
+                    )
+                    self.wall_handles.append(wall_handle)
 
     def compute_reward(self, actions):
         pass
