@@ -1,0 +1,189 @@
+<?xml version="1.0" ?>
+<robot name="testfield">
+  <link name="world"/>
+  <joint name="fixed" type="fixed">
+    <parent link="world"/>
+    <child link="testfield__Wall_12"/>
+  </joint>
+<joint name="wall_12_to_14" type="fixed">
+  <parent link="testfield__Wall_12"/>
+  <child link="testfield__Wall_14"/>
+</joint>
+<joint name="wall_14_to_15" type="fixed">
+  <parent link="testfield__Wall_14"/>
+  <child link="testfield__Wall_15"/>
+</joint>
+<joint name="wall_15_to_16" type="fixed">
+  <parent link="testfield__Wall_15"/>
+  <child link="testfield__Wall_16"/>
+</joint>
+<joint name="wall_16_to_19" type="fixed">
+  <parent link="testfield__Wall_16"/>
+  <child link="testfield__Wall_19"/>
+</joint>
+<joint name="wall_19_to_21" type="fixed">
+  <parent link="testfield__Wall_19"/>
+  <child link="testfield__Wall_21"/>
+</joint>
+<joint name="wall_21_to_22" type="fixed">
+  <parent link="testfield__Wall_21"/>
+  <child link="testfield__Wall_22"/>
+</joint>
+<joint name="wall_22_to_24" type="fixed">
+  <parent link="testfield__Wall_22"/>
+  <child link="testfield__Wall_24"/>
+</joint>
+
+  <link name="testfield__Wall_12">
+    <inertial>
+      <mass value="0"/>
+      <origin rpy="0  0  0" xyz="0  0  0"/>
+      <inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0"/>
+    </inertial>
+    <collision name="testfield__Wall_12_Collision">
+      <origin rpy="0      0      1.5708" xyz="-2.71596 -2.93654  0.75"/>
+      <geometry>
+        <box size="10 0.15 1.5"/>
+      </geometry>
+    </collision>
+    <visual name="testfield__Wall_12_Visual">
+      <origin rpy="0      0      1.5708" xyz="-2.71596 -2.93654  0.75"/>
+      <geometry>
+        <box size="10 0.15 1.5"/>
+      </geometry>
+    </visual>
+  </link>
+  <link name="testfield__Wall_14">
+    <inertial>
+      <mass value="0"/>
+      <origin rpy="0  0  0" xyz="0  0  0"/>
+      <inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0"/>
+    </inertial>
+    <collision name="testfield__Wall_14_Collision">
+      <origin rpy="0  0  0" xyz="7.20904 -7.86154  1.25"/>
+      <geometry>
+        <box size="20 0.15 2.5"/>
+      </geometry>
+    </collision>
+    <visual name="testfield__Wall_14_Visual">
+      <origin rpy="0  0  0" xyz="7.20904 -7.86154  1.25"/>
+      <geometry>
+        <box size="20 0.15 2.5"/>
+      </geometry>
+    </visual>
+  </link>
+  <link name="testfield__Wall_15">
+    <inertial>
+      <mass value="0"/>
+      <origin rpy="0  0  0" xyz="0  0  0"/>
+      <inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0"/>
+    </inertial>
+    <collision name="testfield__Wall_15_Collision">
+      <origin rpy="0      0      1.5708" xyz="17.13403  -2.93654   1.25"/>
+      <geometry>
+        <box size="10 0.15 2.5"/>
+      </geometry>
+    </collision>
+    <visual name="testfield__Wall_15_Visual">
+      <origin rpy="0      0      1.5708" xyz="17.13403  -2.93654   1.25"/>
+      <geometry>
+        <box size="10 0.15 2.5"/>
+      </geometry>
+    </visual>
+  </link>
+  <link name="testfield__Wall_16">
+    <inertial>
+      <mass value="0"/>
+      <origin rpy="0  0  0" xyz="0  0  0"/>
+      <inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0"/>
+    </inertial>
+    <collision name="testfield__Wall_16_Collision">
+      <origin rpy="0       0       3.14159" xyz="7.20904  1.98846  1.25"/>
+      <geometry>
+        <box size="20 0.15 2.5"/>
+      </geometry>
+    </collision>
+    <visual name="testfield__Wall_16_Visual">
+      <origin rpy="0       0       3.14159" xyz="7.20904  1.98846  1.25"/>
+      <geometry>
+        <box size="20 0.15 2.5"/>
+      </geometry>
+    </visual>
+  </link>
+  <link name="testfield__Wall_19">
+    <inertial>
+      <mass value="0"/>
+      <origin rpy="0  0  0" xyz="0  0  0"/>
+      <inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0"/>
+    </inertial>
+    <collision name="testfield__Wall_19_Collision">
+      <origin rpy="0      0     -1.5708" xyz="2.2649  -1.35455  1.25"/>
+      <geometry>
+        <box size="6.5 0.15 2.5"/>
+      </geometry>
+    </collision>
+    <visual name="testfield__Wall_19_Visual">
+      <origin rpy="0      0     -1.5708" xyz="2.2649  -1.35455  1.25"/>
+      <geometry>
+        <box size="6.5 0.15 2.5"/>
+      </geometry>
+    </visual>
+  </link>
+  <link name="testfield__Wall_21">
+    <inertial>
+      <mass value="0"/>
+      <origin rpy="0  0  0" xyz="0  0  0"/>
+      <inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0"/>
+    </inertial>
+    <collision name="testfield__Wall_21_Collision">
+      <origin rpy="0      0      1.5708" xyz="7.6669  -3.99668  1.25"/>
+      <geometry>
+        <box size="7.56534 0.15 2.5"/>
+      </geometry>
+    </collision>
+    <visual name="testfield__Wall_21_Visual">
+      <origin rpy="0      0      1.5708" xyz="7.6669  -3.99668  1.25"/>
+      <geometry>
+        <box size="7.56534 0.15 2.5"/>
+      </geometry>
+    </visual>
+  </link>
+  <link name="testfield__Wall_22">
+    <inertial>
+      <mass value="0"/>
+      <origin rpy="0  0  0" xyz="0  0  0"/>
+      <inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0"/>
+    </inertial>
+    <collision name="testfield__Wall_22_Collision">
+      <origin rpy="0  0  0" xyz="9.59207 -0.14401  1.25"/>
+      <geometry>
+        <box size="4 0.15 2.5"/>
+      </geometry>
+    </collision>
+    <visual name="testfield__Wall_22_Visual">
+      <origin rpy="0  0  0" xyz="9.59207 -0.14401  1.25"/>
+      <geometry>
+        <box size="4 0.15 2.5"/>
+      </geometry>
+    </visual>
+  </link>
+  <link name="testfield__Wall_24">
+    <inertial>
+      <mass value="0"/>
+      <origin rpy="0  0  0" xyz="0  0  0"/>
+      <inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0"/>
+    </inertial>
+    <collision name="testfield__Wall_24_Collision">
+      <origin rpy="0  0  0" xyz="15.55281  -0.11725   1.25"/>
+      <geometry>
+        <box size="3.18076 0.15 2.5"/>
+      </geometry>
+    </collision>
+    <visual name="testfield__Wall_24_Visual">
+      <origin rpy="0  0  0" xyz="15.55281  -0.11725   1.25"/>
+      <geometry>
+        <box size="3.18076 0.15 2.5"/>
+      </geometry>
+    </visual>
+  </link>
+</robot>
