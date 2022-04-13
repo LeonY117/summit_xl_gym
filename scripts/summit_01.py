@@ -151,7 +151,7 @@ class summit(VecTask):
         # initialize some data used later on
         self.up_vec = to_torch(get_axis_params(
             1., self.up_axis_idx), device=self.device).repeat((self.num_envs, 1))
-        
+
         self.dt = self.cfg["sim"]["dt"]
 
     def create_sim(self):
@@ -190,6 +190,13 @@ class summit(VecTask):
             os.path.abspath(__file__)), '../assets')
         summit_asset_file = "summit_xl_description/robots/summit_xls_std_fixed_camera.urdf"
 
+        # room config file
+        room_cfg_root = os.path.join(os.path.dirname(
+            os.path.abspath(__file__)), "./cfg/rooms")
+        room_file = 'room_0.yaml'
+        with open(f'{room_cfg_root}/{room_file}', 'r') as f:
+            room_config = yaml.load(f, Loader=yaml.loader.SafeLoader)
+
         # Load Summit
         asset_options = gymapi.AssetOptions()
         asset_options.flip_visual_attachments = False
@@ -203,15 +210,14 @@ class summit(VecTask):
         self.gym_assets['robot'] = summit_asset
 
         # get some info about summit:
-        self.num_dof = self.gym.get_asset_dof_count(
+        self.summit_num_dof = self.gym.get_asset_dof_count(
             summit_asset)  # 4 DOFs for summit
-        self.num_bodies = self.gym.get_asset_rigid_body_count(summit_asset)
-        body_names = [self.gym.get_asset_rigid_body_name(
-            summit, i) for i in range(self.num_bodies)]
+        self.summit_num_bodies = self.gym.get_asset_rigid_body_count(
+            summit_asset)
 
         # Load box(es)
         box_assets = []
-        box_width = 0.8
+        box_width = 1
         box_density = 20.
         asset_options = gymapi.AssetOptions()
         asset_options.density = box_density
@@ -221,22 +227,25 @@ class summit(VecTask):
         self.gym_assets['boxes'] = box_assets
 
         # Load wall(s)
-        wall_assets = {}
-        wall_height = 2.
-        wall_thickness = 0.1
-        wall_widths = set(wall['length'] for wall in room_walls)
+        wall_assets = {}  # a set with length as key
+        room_walls = room_config['walls']
+        wall_height = room_config['height']
+        wall_thickness = room_config['thickness']
+        wall_widths = set([[value['length'] for (_, value) in wall.items()][0]
+                           for wall in room_walls])
         wall_asset_options = gymapi.AssetOptions()
         wall_asset_options.fix_base_link = True
         # wall_asset_options.density = 1000.
         for width in wall_widths:
             asset_wall = self.gym.create_box(
-                self.sim, wall_thickness, wall_height, width, wall_asset_options)
+                self.sim, wall_thickness, width, wall_height, wall_asset_options)
             wall_assets[width] = asset_wall
         self.gym_assets['walls'] = wall_assets
 
         lower = gymapi.Vec3(-spacing, -spacing, 0.0)
         upper = gymapi.Vec3(spacing, spacing, spacing)
 
+        # cache indices of different actors for each env
         self.envs = []
         self.actor_handles = []
         self.box_handles = []
