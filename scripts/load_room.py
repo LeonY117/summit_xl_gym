@@ -14,6 +14,8 @@ import matplotlib.pyplot as plt
 import os
 import yaml
 
+from map_to_coord import map_to_coord
+
 from mimetypes import init
 
 
@@ -134,6 +136,8 @@ room_file = 'room_0.yaml'
 with open(f'{room_cfg_root}/{room_file}', 'r') as f:
     room_config = yaml.load(f, Loader=yaml.loader.SafeLoader)
 
+map_coords = map_to_coord(room_config)
+
 # Load Summit
 asset_options = gymapi.AssetOptions()
 asset_options.fix_base_link = False
@@ -164,8 +168,7 @@ wall_assets = {}  # a set with length as key
 room_walls = room_config['walls']
 wall_height = room_config['height']
 wall_thickness = room_config['thickness']
-wall_widths = set([[value['length'] for (_, value) in wall.items()][0]
-                   for wall in room_walls])
+wall_widths = set([wall['length'] for (name, wall) in room_walls.items()])
 wall_asset_options = gymapi.AssetOptions()
 wall_asset_options.fix_base_link = True
 # wall_asset_options.density = 1000.
@@ -177,7 +180,7 @@ gym_assets['walls'] = wall_assets
 
 
 # set up the env grid
-num_envs = 25
+num_envs = 1
 num_per_row = 5
 spacing = 12
 env_lower = gymapi.Vec3(-spacing, 0.0, -spacing)
@@ -224,29 +227,28 @@ for i in range(num_envs):
     gym.set_actor_rigid_shape_properties(env, box_handle, box_shape_props)
 
     box_body_props = gym.get_actor_rigid_body_properties(env, box_handle)
-    box_body_props[0].mass *= 10
+    box_body_props[0].mass *= 1
     gym.set_actor_rigid_body_properties(env, box_handle, box_body_props)
 
     # Add wall
-    for obj in room_walls:
-        for (name, wall) in obj.items():
-            wall_name = name
-            wall_thickness = wall_thickness
-            wall_length = wall['length']
-            wall_orientation = wall['orientation']
-            wall_pos_x = wall['pos_x']
-            wall_pos_y = wall['pos_y']
+    for (name, wall) in room_walls.items():
+        wall_name = name
+        wall_thickness = wall_thickness
+        wall_length = wall['length']
+        wall_orientation = wall['orientation']
+        wall_pos_x = wall['pos_x']
+        wall_pos_y = wall['pos_y']
 
-            pos = gymapi.Transform()
-            pos.p = gymapi.Vec3(wall_pos_x, wall_pos_y, 1.0)
+        pos = gymapi.Transform()
+        pos.p = gymapi.Vec3(wall_pos_x, wall_pos_y, 1.0)
 
-            if wall_orientation == 'horizontal':
-                pos.r = gymapi.Quat(1.0, -1.0, 0.0, 0.0)
+        if wall_orientation == 'horizontal':
+            pos.r = gymapi.Quat(1.0, -1.0, 0.0, 0.0)
 
-            wall_handle = gym.create_actor(
-                env, gym_assets['walls'][wall_length], pos, wall_name, i, 0
-            )
-            wall_handles.append(wall_handle)
+        wall_handle = gym.create_actor(
+            env, gym_assets['walls'][wall_length], pos, wall_name, i, 0
+        )
+        wall_handles.append(wall_handle)
 
     # set default DOF positions
     # gym.set_actor_dof_states(env, actor_handle, dof_states, gymapi.STATE_ALL)
@@ -311,7 +313,7 @@ print(summit_state_tensor)
 
 # Simulate
 t = 0
-log_dt = 10
+log_dt = 10000
 
 # create some lists to hold data to be ploted later
 summit_vel, summit_wheel_vel = [], []
@@ -351,6 +353,8 @@ print('Simulation Done')
 
 gym.destroy_viewer(viewer)
 gym.destroy_sim(sim)
+
+quit()
 
 for f in sensor_forces:
     print(f)

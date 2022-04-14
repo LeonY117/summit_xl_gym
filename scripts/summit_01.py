@@ -13,6 +13,8 @@ from isaacgym.gymtorch import *
 
 from isaacgymenvs.utils.torch_jit_utils import *
 from .base.vec_task import VecTask  # pre-defined abstract class
+from map_to_coord import map_to_coord
+
 
 # TODO: find better way to store map config
 room_walls = [{
@@ -197,6 +199,8 @@ class summit(VecTask):
         with open(f'{room_cfg_root}/{room_file}', 'r') as f:
             room_config = yaml.load(f, Loader=yaml.loader.SafeLoader)
 
+        self.map_coords = map_to_coord(room_config)
+
         # Load Summit
         asset_options = gymapi.AssetOptions()
         asset_options.flip_visual_attachments = False
@@ -231,8 +235,8 @@ class summit(VecTask):
         room_walls = room_config['walls']
         wall_height = room_config['height']
         wall_thickness = room_config['thickness']
-        wall_widths = set([[value['length'] for (_, value) in wall.items()][0]
-                           for wall in room_walls])
+        wall_widths = set([wall['length']
+                          for (name, wall) in room_walls.items()])
         wall_asset_options = gymapi.AssetOptions()
         wall_asset_options.fix_base_link = True
         # wall_asset_options.density = 1000.
@@ -287,28 +291,38 @@ class summit(VecTask):
                 env, box_handle, box_body_props)
 
             # Add walls
-            for obj in room_walls:
-                for (name, wall) in obj.items():
-                    wall_name = name
-                    wall_thickness = wall_thickness
-                    wall_length = wall['length']
-                    wall_orientation = wall['orientation']
-                    wall_pos_x = wall['pos_x']
-                    wall_pos_y = wall['pos_y']
+            for (name, wall) in room_walls.items():
+                wall_name = name
+                wall_thickness = wall_thickness
+                wall_length = wall['length']
+                wall_orientation = wall['orientation']
+                wall_pos_x = wall['pos_x']
+                wall_pos_y = wall['pos_y']
 
-                    pos = gymapi.Transform()
-                    pos.p = gymapi.Vec3(wall_pos_x, wall_pos_y, 1.0)
+                pos = gymapi.Transform()
+                pos.p = gymapi.Vec3(wall_pos_x, wall_pos_y, 1.0)
 
-                    if wall_orientation == 'horizontal':
-                        pos.r = gymapi.Quat(1.0, -1.0, 0.0, 0.0)
+                if wall_orientation == 'horizontal':
+                    pos.r = gymapi.Quat(1.0, -1.0, 0.0, 0.0)
 
-                    wall_handle = self.gym.create_actor(
-                        env, self.gym_assets['walls'][wall_length], pos, wall_name, i, 0
-                    )
-                    self.wall_handles.append(wall_handle)
+                wall_handle = self.gym.create_actor(
+                    env, self.gym_assets['walls'][wall_length], pos, wall_name, i, 0
+                )
+                self.wall_handles.append(wall_handle)
 
     def compute_reward(self, actions):
         pass
 
     def compute_observations(self):
         pass
+
+
+@torch.jit.script
+def compute_summit_reward():
+    pass
+
+@torch.jit.script
+def compute_summit_observations():
+    pass
+
+
