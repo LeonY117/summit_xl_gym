@@ -34,7 +34,7 @@ class Summit(VecTask):
         self.max_episode_length = self.cfg["env"]["episodeLength"]
         # TODO: figure out what these two represent exactly
         self.cfg["env"]["numObservations"] = 60
-        self.cfg["env"]["numActions"] = 6
+        self.cfg["env"]["numActions"] = 4
 
         # to be configured later, randomize is set to false for now
         self.randomization_params = self.cfg["task"]["randomization_params"]
@@ -67,7 +67,8 @@ class Summit(VecTask):
 
         # Get gym GPU buffers
         # retrieves buffer for actor rot states, with the shape (num_env, num_actors * 13)
-        _actor_root_state = self.gym.acquire_actor_root_state_tensor(self.sim)
+        _actor_root_state_tensor = self.gym.acquire_actor_root_state_tensor(
+            self.sim)
         # retrieves buffer for dof state, with shape (num_env, num_dofs * 2)
         _dof_state_tensor = self.gym.acquire_dof_state_tensor(self.sim)
 
@@ -76,24 +77,25 @@ class Summit(VecTask):
         self.gym.refresh_actor_root_state_tensor(self.sim)
 
         # store the initial state, used for resetting the agent
-        self.root_states = gymtorch.wrap_tensor(_actor_root_state)
+        self.actor_root_state_tensor = gymtorch.wrap_tensor(
+            _actor_root_state_tensor)
         # TODO: this needs to change: we have initial pos for both agent and boxes
-        self.initial_root_states = self.root_states.clone()
+        self.initial_root_states = self.actor_root_state_tensor.clone()
 
         # create some wrapper tensors for different slices
         # dof state tensors store pos and vel for each dof
-        self.dof_state = gymtorch.wrap_tensor(_dof_state_tensor)
-        self.dof_pos = self.dof_state.view(
-            self.num_envs, self.num_dof, 2)[..., 0]
-        self.dof_vel = self.dof_state.view(
-            self.num_envs, self.num_dof, 2)[..., 1]
+        self.dof_state_tensor = gymtorch.wrap_tensor(_dof_state_tensor)
+        self.dof_pos = self.dof_state_tensor.view(
+            self.num_envs, self.summit_num_dof, 2)[..., 0]
+        self.dof_vel = self.dof_state_tensor.view(
+            self.num_envs, self.summit_num_dof, 2)[..., 1]
 
         self.initial_dof_pos = torch.zeros_like(
             self.dof_pos, device=self.device, dtype=torch.float)
         zero_tensor = torch.tensor([0.0], device=self.device)
         # snap pos constraints to initial pos (if initial dof pos with all zeros violate constraint)
-        self.initial_dof_pos = torch.where(self.dof_limits_lower > zero_tensor, self.dof_limits_lower,
-                                           torch.where(self.dof_limits_upper < zero_tensor, self.dof_limits_upper, self.initial_dof_pos))
+        # self.initial_dof_pos = torch.where(self.dof_limits_lower > zero_tensor, self.dof_limits_lower,
+        #                                    torch.where(self.dof_limits_upper < zero_tensor, self.dof_limits_upper, self.initial_dof_pos))
         self.initial_dof_vel = torch.zeros_like(
             self.dof_vel, device=self.device, dtype=torch.float)
 
@@ -102,6 +104,11 @@ class Summit(VecTask):
             1., self.up_axis_idx), device=self.device).repeat((self.num_envs, 1))
 
         self.dt = self.cfg["sim"]["dt"]
+
+        # create some tensors to be used later
+        self.summit_state_tensor = self.actor_root_state_tensor[self.actor_handles]
+        self.summit_pos_tensor = self.summit_state_tensor[:, 0:3]
+        self.summit_vel_tensor = self.summit_state_tensor[:, 7:10]
 
     def create_sim(self):
         self.up_axis_idx = 2  # index of up axis: Y=1, Z=2
@@ -141,7 +148,7 @@ class Summit(VecTask):
 
         # room config file
         room_cfg_root = os.path.join(os.path.dirname(
-            os.path.abspath(__file__)), "./cfg/rooms")
+            os.path.abspath(__file__)), "../cfg/rooms")
         room_file = 'room_0.yaml'
         with open(f'{room_cfg_root}/{room_file}', 'r') as f:
             room_config = yaml.load(f, Loader=yaml.loader.SafeLoader)
@@ -193,7 +200,7 @@ class Summit(VecTask):
             wall_assets[width] = asset_wall
         self.gym_assets['walls'] = wall_assets
 
-        lower = gymapi.Vec3(-spacing, -spacing, 0.0)
+        lower = gymapi.Vec3(-spacing, 0.0, -spacing)
         upper = gymapi.Vec3(spacing, spacing, spacing)
 
         # cache indices of different actors for each env
@@ -264,11 +271,17 @@ class Summit(VecTask):
         self.gym.refresh_dof_state_tensor(self.sim)
         self.gym.refresh_actor_root_state_tensor(self.sim)
 
+        summit_pos = self.summit_pos_tensor
+
         compute_summit_observations()
 
     def pre_physics_step(self, actions):
         self.actions = actions.clone().to(self.device)
-        print(self.actions)
+        print(self.actions[0])
+
+    def post_physics_step(self):
+        self.compute_observations()
+        self.compute_reward(self.actions)
 
 
 @torch.jit.script
