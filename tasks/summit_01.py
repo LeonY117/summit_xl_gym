@@ -13,63 +13,10 @@ from isaacgym.gymtorch import *
 
 from isaacgymenvs.utils.torch_jit_utils import *
 from .base.vec_task import VecTask  # pre-defined abstract class
-from map_to_coord import map_to_coord
+from .helper import map_to_coord
 
 
-# TODO: find better way to store map config
-room_walls = [{
-    'name': 'left_bound',
-    'pos': (-10, 0),
-    'length': 10,
-    'orientation': 'vertical',
-    'thickness': 0.1,
-}, {
-    'name': 'right_bound',
-    'pos': (10, 0),
-    'length': 10,
-    'orientation': 'vertical',
-    'thickness': 0.1,
-}, {
-    'name': 'top_bound',
-    'pos': (0, 5),
-    'length': 20,
-    'orientation': 'horizontal',
-    'thickness': 0.1,
-}, {
-    'name': 'bottom_bound',
-    'pos': (0, -5),
-    'length': 20,
-    'orientation': 'horizontal',
-    'thickness': 0.1,
-}, {
-    'name': 'wall_1',
-    'pos': (-5, 2.5),
-    'length': 5,
-    'orientation': 'vertical',
-    'thickness': 0.1
-}, {
-    'name': 'wall_2',
-    'pos': (0, -1.5),
-    'length': 7,
-    'orientation': 'vertical',
-    'thickness': 0.1
-}, {
-    'name': 'wall_3',
-    'pos': (1.5, 2),
-    'length': 3,
-    'orientation': 'horizontal',
-    'thickness': 0.1
-}, {
-    'name': 'wall_4',
-    'pos': (8.5, 2),
-    'length': 3,
-    'orientation': 'horizontal',
-    'thickness': 0.1
-}
-]
-
-
-class summit(VecTask):
+class Summit(VecTask):
 
     def __init__(self, cfg, sim_device, graphics_device_id, headless):
         """
@@ -311,18 +258,24 @@ class summit(VecTask):
                 self.wall_handles.append(wall_handle)
 
     def compute_reward(self, actions):
-        pass
+        compute_summit_reward()
 
     def compute_observations(self):
-        pass
+        self.gym.refresh_dof_state_tensor(self.sim)
+        self.gym.refresh_actor_root_state_tensor(self.sim)
+
+        compute_summit_observations()
+
+    def pre_physics_step(self, actions):
+        self.actions = actions.clone().to(self.device)
+        print(self.actions)
 
 
 @torch.jit.script
 def compute_summit_reward():
     pass
 
+
 @torch.jit.script
 def compute_summit_observations():
     pass
-
-
