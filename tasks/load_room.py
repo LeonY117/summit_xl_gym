@@ -3,10 +3,11 @@
 # Change direction on up axis from Y to Z (to be congruent with base/Vec_task)
 # Refactor of cached tensors in several aspects
 
-
+from mimetypes import init
 from isaacgym import gymapi
 from isaacgym import gymutil
 from isaacgym import gymtorch
+from helper import map_to_coord
 
 import numpy as np
 import torch
@@ -14,61 +15,8 @@ import matplotlib.pyplot as plt
 import os
 import yaml
 
-from map_to_coord import map_to_coord
 
-from mimetypes import init
-
-
-room_walls = [{
-    'name': 'left_bound',
-    'pos': (-10, 0),
-    'length': 10,
-    'orientation': 'vertical',
-    'thickness': 0.1,
-}, {
-    'name': 'right_bound',
-    'pos': (10, 0),
-    'length': 10,
-    'orientation': 'vertical',
-    'thickness': 0.1,
-}, {
-    'name': 'top_bound',
-    'pos': (0, 5),
-    'length': 20,
-    'orientation': 'horizontal',
-    'thickness': 0.1,
-}, {
-    'name': 'bottom_bound',
-    'pos': (0, -5),
-    'length': 20,
-    'orientation': 'horizontal',
-    'thickness': 0.1,
-}, {
-    'name': 'wall_1',
-    'pos': (-5, 2.5),
-    'length': 5,
-    'orientation': 'vertical',
-    'thickness': 0.1
-}, {
-    'name': 'wall_2',
-    'pos': (0, -1.5),
-    'length': 7,
-    'orientation': 'vertical',
-    'thickness': 0.1
-}, {
-    'name': 'wall_3',
-    'pos': (1.5, 2),
-    'length': 3,
-    'orientation': 'horizontal',
-    'thickness': 0.1
-}, {
-    'name': 'wall_4',
-    'pos': (8.5, 2),
-    'length': 3,
-    'orientation': 'horizontal',
-    'thickness': 0.1
-}
-]
+# some comments
 
 
 # intiailze gym
@@ -128,7 +76,7 @@ gym_indices = dict.fromkeys(prim_names)
 asset_root = os.path.join(os.path.dirname(
     os.path.abspath(__file__)), "../assets")
 room_cfg_root = os.path.join(os.path.dirname(
-    os.path.abspath(__file__)), "./cfg/rooms")
+    os.path.abspath(__file__)), "../cfg/rooms")
 # summit_xl asset
 asset_file = "summit_xl_description/robots/summit_xls_std_fixed_camera.urdf"
 # wall config file
@@ -180,7 +128,7 @@ gym_assets['walls'] = wall_assets
 
 
 # set up the env grid
-num_envs = 1
+num_envs = 10
 num_per_row = 5
 spacing = 12
 env_lower = gymapi.Vec3(-spacing, 0.0, -spacing)
@@ -281,7 +229,8 @@ for i in range(num_envs):
     gym.set_dof_target_velocity(env, front_right_wheel_handle0, velocity)
 
 # Handles are just indices (but useful when there are multiple envs)
-print(f'summit actor handle: {actor_handles[0]}')
+print(f'env handles: {envs}')
+print(f'summit actor handle: {actor_handles}')
 print(f'box handles: {box_handles}')
 print(f'wall handles: {wall_handles}')
 
@@ -300,6 +249,8 @@ force_sensor_tensor = gymtorch.wrap_tensor(_force_sensor_tensor)
 print(actor_root_state_tensor.size())
 print(dof_state_tensor.size())
 
+print(actor_root_state_tensor[actor_handles].size())
+
 # Let's take a look at the robot in the first env
 summit_state_tensor = actor_root_state_tensor[actor_handles[0]]
 summit_pos_tensor = summit_state_tensor[0:3]
@@ -313,9 +264,10 @@ print(summit_state_tensor)
 
 # Simulate
 t = 0
-log_dt = 10000
+log_dt = 10
 
 # create some lists to hold data to be ploted later
+summit_pos_x, summit_pos_y = [], []
 summit_vel, summit_wheel_vel = [], []
 sensor_forces, sensor_torques = [], []
 
@@ -330,12 +282,16 @@ while not gym.query_viewer_has_closed(viewer):
         # print(f'wheel: {dof_vel_tensor[0]}')
         # print(f'pos_y: {summit_pos_tensor[1]}')
         # print(f'vel_y: {vel_y}')
+        summit_pos_x.append(summit_pos_tensor[0].item())
+        summit_pos_y.append(summit_pos_tensor[1].item())
         summit_vel.append(vel_y.abs().item())
         summit_wheel_vel.append(torch.mean(dof_vel_tensor[0]).item())
 
         sensor_data = summit_front_sensor_tensor
         sensor_forces.append(sensor_data.tolist())
         sensor_torques.append(summit_front_torque_sensor_tensor.tolist())
+
+        # print([summit_pos_x[-1], summit_pos_y[-1]])
 
     # step the physics
     gym.simulate(sim)
@@ -353,6 +309,10 @@ print('Simulation Done')
 
 gym.destroy_viewer(viewer)
 gym.destroy_sim(sim)
+
+# plot position of summit to check that coord is correct
+plt.plot(summit_pos_x, summit_pos_y)
+plt.show()
 
 quit()
 
