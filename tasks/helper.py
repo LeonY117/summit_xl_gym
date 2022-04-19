@@ -1,18 +1,43 @@
 import torch
+from isaacgym import gymtorch, gymapi
 
 
-def map_to_coord(dict):
+def load_room_from_config(room_dict):
+    '''
+    Loads room config files into useful tensors for gym
+
+    Args:
+        room_dict: dictionary loaded from yaml config
+
+    Output: 
+        wall_coords: tensor with shape (2 x 2 x n), representing coordinates of n walls
+        goal_pos: Vec3, representing coordinate of goal
+        goal_radius: int, representing permissible radius around goal
+
+    '''
+
+    walls = room_dict['walls']
+    goal_x = room_dict['goal_x']
+    goal_y = room_dict['goal_y']
+    goal_z = room_dict['goal_z'] if 'goal_z' in room_dict else 0.
+    goal_radius = room_dict['goal_radius']
+
+    wall_coords = map_to_coord(walls)
+    goal_pos = gymapi.Vec3(goal_x, goal_y, goal_z)
+
+    return wall_coords, goal_pos, goal_radius
+
+
+def map_to_coord(walls):
     '''
     Takes in the map dictionary and returns a list of vectors representing boundaries
 
-    Input: 
-    map dictionary (generated from yaml configs): dict
+    Args: 
+        walls: dictionary of all the walls indexed by names
 
-    Output: 
-    tensor representing boundaries: tensor with shape (2 x 2 x n)
+    Returns: 
+        tensor representing boundaries: tensor with shape (2 x 2 x n)
     '''
-
-    walls = dict["walls"]
 
     out = []
     for (_, wall_obj) in walls.items():

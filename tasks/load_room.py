@@ -7,7 +7,7 @@ from mimetypes import init
 from isaacgym import gymapi
 from isaacgym import gymutil
 from isaacgym import gymtorch
-from helper import map_to_coord
+from helper import load_room_from_config
 
 import numpy as np
 import torch
@@ -84,7 +84,7 @@ room_file = 'room_0.yaml'
 with open(f'{room_cfg_root}/{room_file}', 'r') as f:
     room_config = yaml.load(f, Loader=yaml.loader.SafeLoader)
 
-map_coords = map_to_coord(room_config)
+map_coords, goal_pos, goal_radius = load_room_from_config(room_config)
 
 # Load Summit
 asset_options = gymapi.AssetOptions()
@@ -128,8 +128,8 @@ gym_assets['walls'] = wall_assets
 
 
 # set up the env grid
-num_envs = 10
-num_per_row = 5
+num_envs = 16
+num_per_row = 4
 spacing = 12
 env_lower = gymapi.Vec3(-spacing, 0.0, -spacing)
 env_upper = gymapi.Vec3(spacing, spacing, spacing)

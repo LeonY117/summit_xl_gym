@@ -42,3 +42,6 @@ walls:
     pos_y: 2
     length: 3
     orientation: horizontal
+goal_x: 5
+goal_y: -2.5
+goal_radius: 0.5

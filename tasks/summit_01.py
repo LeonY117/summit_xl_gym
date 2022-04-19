@@ -13,7 +13,7 @@ from isaacgym.gymtorch import *
 
 from isaacgymenvs.utils.torch_jit_utils import *
 from .base.vec_task import VecTask  # pre-defined abstract class
-from .helper import map_to_coord
+from .helper import load_room_from_config
 
 
 class Summit(VecTask):
@@ -153,7 +153,9 @@ class Summit(VecTask):
         with open(f'{room_cfg_root}/{room_file}', 'r') as f:
             room_config = yaml.load(f, Loader=yaml.loader.SafeLoader)
 
-        self.map_coords = map_to_coord(room_config)
+        # load some global data from config file using helper function
+        self.map_coords, self.goal_pos, self.goal_radius = load_room_from_config(
+            room_config)
 
         # Load Summit
         asset_options = gymapi.AssetOptions()
