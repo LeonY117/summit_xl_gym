@@ -4,14 +4,14 @@ from isaacgym import gymtorch, gymapi
 
 def load_room_from_config(room_dict):
     '''
-    Loads room config files into useful tensors for gym
+    Loads room config files into useful list for gym
 
     Args:
         room_dict: dictionary loaded from yaml config
 
     Output: 
-        wall_coords: tensor with shape (2 x 2 x n), representing coordinates of n walls
-        goal_pos: Vec3, representing coordinate of goal
+        wall_coords: list with shape (2 x 2 x n), representing coordinates of n walls
+        goal_pos: list, representing coordinate of goal
         goal_radius: int, representing permissible radius around goal
 
     '''
@@ -23,7 +23,7 @@ def load_room_from_config(room_dict):
     goal_radius = room_dict['goal_radius']
 
     wall_coords = map_to_coord(walls)
-    goal_pos = gymapi.Vec3(goal_x, goal_y, goal_z)
+    goal_pos = [goal_x, goal_y, goal_z]
 
     return wall_coords, goal_pos, goal_radius
 
@@ -52,4 +52,4 @@ def map_to_coord(walls):
             y1, y2 = mid_coord[1] - width, mid_coord[1] + width
         out.append([[x1, y1], [x2, y2]])
 
-    return torch.tensor(out)
+    return out
