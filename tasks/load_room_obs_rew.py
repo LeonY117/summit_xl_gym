@@ -82,7 +82,6 @@ with open(f'{room_cfg_root}/{room_file}', 'r') as f:
     room_config = yaml.load(f, Loader=yaml.loader.SafeLoader)
 
 map_coords, goal_pos, goal_radius = load_room_from_config(room_config)
-print(map_coords.size())
 
 # Load Summit
 asset_options = gymapi.AssetOptions()
@@ -123,7 +122,6 @@ for width in wall_widths:
         sim, wall_thickness, width, wall_height, wall_asset_options)
     wall_assets[width] = asset_wall
 gym_assets['walls'] = wall_assets
-
 
 # set up the env grid
 num_envs = 16
@@ -209,22 +207,26 @@ for i in range(num_envs):
     props['damping'].fill(1000.0)
     gym.set_actor_dof_properties(env, actor_handle, props)
 
-    # Set DOF drive targets
-    front_left_wheel_handle0 = gym.find_actor_dof_handle(
-        env, actor_handle, 'summit_xl_front_left_wheel_joint')
-    front_right_wheel_handle0 = gym.find_actor_dof_handle(
-        env, actor_handle, 'summit_xl_front_right_wheel_joint')
-    back_left_wheel_handle0 = gym.find_actor_dof_handle(
-        env, actor_handle, 'summit_xl_back_left_wheel_joint')
-    back_right_wheel_handle0 = gym.find_actor_dof_handle(
-        env, actor_handle, 'summit_xl_back_right_wheel_joint')
+    # velocity = 2
+    # for dof_handle in range(gym.get_actor_dof_count(env, actor_handle)):
+    #     gym.set_dof_target_velocity(env, dof_handle, velocity)
 
-    # # Control DOF to make robot move forward
-    velocity = 1
-    gym.set_dof_target_velocity(env, back_left_wheel_handle0, velocity)
-    gym.set_dof_target_velocity(env, back_right_wheel_handle0, velocity)
-    gym.set_dof_target_velocity(env, front_left_wheel_handle0, velocity)
-    gym.set_dof_target_velocity(env, front_right_wheel_handle0, velocity)
+    # # Set DOF drive targets
+    # front_left_wheel_handle0 = gym.find_actor_dof_handle(
+    #     env, actor_handle, 'summit_xl_front_left_wheel_joint')
+    # front_right_wheel_handle0 = gym.find_actor_dof_handle(
+    #     env, actor_handle, 'summit_xl_front_right_wheel_joint')
+    # back_left_wheel_handle0 = gym.find_actor_dof_handle(
+    #     env, actor_handle, 'summit_xl_back_left_wheel_joint')
+    # back_right_wheel_handle0 = gym.find_actor_dof_handle(
+    #     env, actor_handle, 'summit_xl_back_right_wheel_joint')
+
+    # # # Control DOF to make robot move forward
+    # velocity = 1
+    # gym.set_dof_target_velocity(env, back_left_wheel_handle0, velocity)
+    # gym.set_dof_target_velocity(env, back_right_wheel_handle0, velocity)
+    # gym.set_dof_target_velocity(env, front_left_wheel_handle0, velocity)
+    # gym.set_dof_target_velocity(env, front_right_wheel_handle0, velocity)
 
 # Handles are just indices (but useful when there are multiple envs)
 print(f'env handles: {envs}')
@@ -292,6 +294,10 @@ while not gym.query_viewer_has_closed(viewer):
         # print([summit_pos_x[-1], summit_pos_y[-1]])
 
     # step the physics
+    dummy_vel_tensor = torch.ones_like(dof_vel_tensor) * 1
+    vel_tensor = gymtorch.unwrap_tensor(dummy_vel_tensor)
+    gym.set_dof_velocity_target_tensor(sim, vel_tensor)
+
     gym.simulate(sim)
     gym.fetch_results(sim, True)
 
