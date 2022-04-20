@@ -36,7 +36,7 @@ def map_to_coord(walls):
         walls: dictionary of all the walls indexed by names
 
     Returns: 
-        tensor representing boundaries: tensor with shape (2 x 2 x n)
+        list with shape (2 x 2 x n)
     '''
 
     out = []
