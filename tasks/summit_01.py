@@ -1,17 +1,18 @@
 # version 1 of summit xl steel class
 # the code is adapted from ant.py from isaacgymenvs
 
-from click import pass_context
+from typing import Tuple
+from isaacgym import gymtorch
+from isaacgym import gymapi
+from isaacgym.gymtorch import *
+from isaacgymenvs.utils.torch_jit_utils import *
+
+
 import numpy as np
 import yaml
 import os
 import torch
 
-from isaacgym import gymtorch
-from isaacgym import gymapi
-from isaacgym.gymtorch import *
-
-from isaacgymenvs.utils.torch_jit_utils import *
 from .base.vec_task import VecTask  # pre-defined abstract class
 from .helper import load_room_from_config
 
@@ -32,8 +33,8 @@ class Summit(VecTask):
         self.cfg = cfg  # OmegaConf & Hydra Config
 
         self.max_episode_length = self.cfg["env"]["episodeLength"]
-        # TODO: figure out what these two represent exactly
-        self.cfg["env"]["numObservations"] = 60
+        # TODO: initiate numObservations dynamically from room_config
+        self.cfg["env"]["numObservations"] = 65
         self.cfg["env"]["numActions"] = 4
 
         # to be configured later, randomize is set to false for now
@@ -86,9 +87,9 @@ class Summit(VecTask):
         # dof state tensors store pos and vel for each dof
         self.dof_state_tensor = gymtorch.wrap_tensor(_dof_state_tensor)
         self.dof_pos = self.dof_state_tensor.view(
-            self.num_envs, self.summit_num_dof, 2)[..., 0]
+            self.num_envs, self.summit_num_dofs, 2)[..., 0]
         self.dof_vel = self.dof_state_tensor.view(
-            self.num_envs, self.summit_num_dof, 2)[..., 1]
+            self.num_envs, self.summit_num_dofs, 2)[..., 1]
 
         self.initial_dof_pos = torch.zeros_like(
             self.dof_pos, device=self.device, dtype=torch.float)
@@ -105,10 +106,13 @@ class Summit(VecTask):
 
         self.dt = self.cfg["sim"]["dt"]
 
-        # create some tensors to be used later
+        # create some summit tensors to be used later
         self.summit_state_tensor = self.actor_root_state_tensor[self.actor_handles]
         self.summit_pos_tensor = self.summit_state_tensor[:, 0:3]
+        self.summit_rot_tensor = self.summit_state_tensor[:, 3:7]
         self.summit_vel_tensor = self.summit_state_tensor[:, 7:10]
+
+        self.box_state_tensor = self.actor_root_state_tensor[self.box_handles]
 
     def create_sim(self):
         self.up_axis_idx = 2  # index of up axis: Y=1, Z=2
@@ -154,8 +158,15 @@ class Summit(VecTask):
             room_config = yaml.load(f, Loader=yaml.loader.SafeLoader)
 
         # load some global data from config file using helper function
-        self.map_coords, self.goal_pos, self.goal_radius = load_room_from_config(
+        map_coords, goal_pos, goal_radius = load_room_from_config(
             room_config)
+
+        self.goal_pos = torch.tensor(
+            goal_pos, device=self.device, dtype=torch.float).repeat(self.num_envs, 1)
+        self.goal_radius = torch.tensor(
+            goal_radius, device=self.device, dtype=torch.float).expand(self.num_envs, 1)
+        self.map_coords = torch.tensor(
+            map_coords, device=self.device, dtype=torch.float).flatten().repeat(self.num_envs, 1)
 
         # Load Summit
         asset_options = gymapi.AssetOptions()
@@ -170,7 +181,7 @@ class Summit(VecTask):
         self.gym_assets['robot'] = summit_asset
 
         # get some info about summit:
-        self.summit_num_dof = self.gym.get_asset_dof_count(
+        self.summit_num_dofs = self.gym.get_asset_dof_count(
             summit_asset)  # 4 DOFs for summit
         self.summit_num_bodies = self.gym.get_asset_rigid_body_count(
             summit_asset)
@@ -205,6 +216,14 @@ class Summit(VecTask):
         lower = gymapi.Vec3(-spacing, 0.0, -spacing)
         upper = gymapi.Vec3(spacing, spacing, spacing)
 
+        # set summit dof properties
+        summit_dof_props = self.gym.get_asset_dof_properties(summit_asset)
+        summit_dof_props['stiffness'].fill(0.0)
+        summit_dof_props['damping'].fill(1000.0)
+        for i in range(self.summit_num_dofs):
+            summit_dof_props['driveMode'][i] = gymapi.DOF_MODE_VEL
+            # apply upper and lower limit here as well
+
         # cache indices of different actors for each env
         self.envs = []
         self.actor_handles = []
@@ -222,6 +241,8 @@ class Summit(VecTask):
 
             actor_handle = self.gym.create_actor(
                 env, self.gym_assets['robot'], initial_pose, 'summit', i, 0)
+            self.gym.set_actor_dof_properties(
+                env, actor_handle, summit_dof_props)
             self.actor_handles.append(actor_handle)
 
             # add box
@@ -272,14 +293,35 @@ class Summit(VecTask):
     def compute_observations(self):
         self.gym.refresh_dof_state_tensor(self.sim)
         self.gym.refresh_actor_root_state_tensor(self.sim)
+        self.gym.refresh_rigid_body_state_tensor
 
-        summit_pos = self.summit_pos_tensor
+        # goal pos, expanded along envs
+        goal_pos = self.goal_pos[:, 0:2]
+        # summit pos, vel, rot, reducing to 2d
+        summit_pos = self.summit_pos_tensor[:, 0:2]
+        summit_vel = self.summit_vel_tensor[:, 0:2]
+        summit_rot_roll, summit_rot_pitch, summit_rot_yaw = get_euler_xyz(
+            self.summit_rot_tensor)
+        # wall bounds
+        wall_bounds = self.map_coords
+        # box keypoints
+        box_keypoints = torch.flatten(
+            gen_keypoints(self.box_state_tensor[:, 0:7]), start_dim=1)
 
-        compute_summit_observations()
+        self.obs_buf = torch.cat(
+            (goal_pos, summit_pos, summit_vel, summit_rot_roll.unsqueeze(-1), summit_rot_pitch.unsqueeze(-1), summit_rot_yaw.unsqueeze(-1), wall_bounds, box_keypoints), dim=-1)
+
+        return self.obs_buf
+        # compute_summit_observations()
 
     def pre_physics_step(self, actions):
         self.actions = actions.clone().to(self.device)
-        print(self.actions[0])
+        # if needed we can do a rescaling here
+        target_velocities = self.actions * 10
+        velocity_tensor = gymtorch.unwrap_tensor(target_velocities)
+        self.gym.set_dof_velocity_target_tensor(
+            self.sim, velocity_tensor)
+        print(target_velocities[0])
 
     def post_physics_step(self):
         self.compute_observations()
@@ -292,5 +334,24 @@ def compute_summit_reward():
 
 
 @torch.jit.script
+# refactor code to here if need expensive computations
 def compute_summit_observations():
     pass
+
+
+@torch.jit.script
+def gen_keypoints(pose: torch.Tensor, num_keypoints: int = 8, size: Tuple[float, float, float] = (0.065, 0.065, 0.065)):
+
+    num_envs = pose.shape[0]
+
+    keypoints_buf = torch.ones(
+        num_envs, num_keypoints, 3, dtype=torch.float32, device=pose.device)
+
+    for i in range(num_keypoints):
+        # which dimensions to negate
+        n = [((i >> k) & 1) == 0 for k in range(3)]
+        corner_loc = [(1 if n[k] else -1) * s / 2 for k, s in enumerate(size)],
+        corner = torch.tensor(corner_loc, dtype=torch.float32,
+                              device=pose.device) * keypoints_buf[:, i, :]
+        keypoints_buf[:, i, :] = local_to_world_space(corner, pose)
+    return keypoints_buf
