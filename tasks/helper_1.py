@@ -14,26 +14,23 @@ def load_room_from_config(room_dict):
     Output: 
         wall_coords: list with shape (2 x 2 x n), representing coordinates of n walls
         goal_pos: list, representing coordinate of goal
-        num_boxes: int, representing number of boxes
 
     '''
 
     wall_cfg, goal_cfg, box_cfg = room_dict['wall_cfg'], room_dict['goal_cfg'], room_dict['box_cfg']
 
-    walls = wall_cfg['walls']
-
     goal_x = goal_cfg['goal_x']
     goal_y = goal_cfg['goal_y']
-    goal_z = goal_cfg['goal_z'] if 'goal_z' in room_dict['goal'] else 0.
+    goal_z = goal_cfg['goal_z'] if 'goal_z' in goal_cfg else 0.
     goal_radius = goal_cfg['goal_radius']
 
     boxes = box_cfg['boxes']
     num_boxes = len(boxes)
 
-    wall_coords = map_to_coord(walls)
+    wall_coords = map_to_coord(wall_cfg['walls'])
     goal_pos = [goal_x, goal_y, goal_z]
 
-    return wall_coords, goal_pos, num_boxes
+    return wall_coords, goal_pos
 
 
 def map_to_coord(walls):
@@ -48,8 +45,7 @@ def map_to_coord(walls):
     '''
 
     out = []
-    for (_, wall_obj) in walls.items():
-        wall = wall_obj
+    for wall in walls:
         mid_coord = [wall['pos_x'], wall['pos_y']]
         width = wall['length'] / 2
         if wall["orientation"] == 'horizontal':
