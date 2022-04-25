@@ -1,7 +1,7 @@
 import torch
 from isaacgym import gymtorch, gymapi
 
-# This helper file supports only room_0.yaml
+#
 
 
 def load_room_from_config(room_dict):
@@ -14,22 +14,26 @@ def load_room_from_config(room_dict):
     Output: 
         wall_coords: list with shape (2 x 2 x n), representing coordinates of n walls
         goal_pos: list, representing coordinate of goal
-        goal_radius: int, representing permissible radius around goal
+        num_boxes: int, representing number of boxes
 
     '''
 
-    walls = room_dict['walls']
-    goal_x = room_dict['goal']['goal_x']
-    goal_y = room_dict['goal']['goal_y']
-    goal_z = room_dict['goal']['goal_z'] if 'goal_z' in room_dict['goal'] else 0.
-    goal_radius = room_dict['goal']['goal_radius']
+    wall_cfg, goal_cfg, box_cfg = room_dict['wall_cfg'], room_dict['goal_cfg'], room_dict['box_cfg']
 
-    boxes = room_dict['boxes']
+    walls = wall_cfg['walls']
+
+    goal_x = goal_cfg['goal_x']
+    goal_y = goal_cfg['goal_y']
+    goal_z = goal_cfg['goal_z'] if 'goal_z' in room_dict['goal'] else 0.
+    goal_radius = goal_cfg['goal_radius']
+
+    boxes = box_cfg['boxes']
+    num_boxes = len(boxes)
 
     wall_coords = map_to_coord(walls)
     goal_pos = [goal_x, goal_y, goal_z]
 
-    return wall_coords, goal_pos, goal_radius
+    return wall_coords, goal_pos, num_boxes
 
 
 def map_to_coord(walls):

@@ -1,6 +1,6 @@
 room_name: room_0
-height: 2.0
-thickness: 0.1
+wall_height: 2.0
+wall_thickness: 0.1
 walls:
   left_bound:
     pos_x: -10
@@ -42,6 +42,12 @@ walls:
     pos_y: 2
     length: 3
     orientation: horizontal
-goal_x: 5
-goal_y: -2.5
-goal_radius: 0.5
+goal:
+  goal_x: 5
+  goal_y: -2.5
+  goal_radius: 0.5
+useDefaultBoxes: True
+box_width: 1
+boxes:
+  - pos_x: -7.5
+    pos_y: -1

@@ -14,7 +14,7 @@ import os
 import torch
 
 from .base.vec_task import VecTask  # pre-defined abstract class
-from .helper_1 import load_room_from_config
+from .helper import load_room_from_config
 
 
 class Summit(VecTask):
@@ -29,7 +29,7 @@ class Summit(VecTask):
            graphics_device_id: the device ID to render with.
            headless: Set to False to disable viewer rendering.
         """
-        # ---------------- LOAD GLOBAL CONFIG ----------------
+        # ---------------- GLOBAL CONFIG ----------------
         self.cfg = cfg  # OmegaConf & Hydra Config
 
         # load room configuration (in future we can merge this with global config)
@@ -38,13 +38,19 @@ class Summit(VecTask):
         room_cfg_file = 'room_0.yaml'
         with open(f'{room_cfg_root}/{room_cfg_file}', 'r') as f:
             self.room_config = yaml.load(f, Loader=yaml.loader.SafeLoader)
-        self.max_num_boxes = len(self.room_config['box_cfg']['boxes'])  # 1
-        self.num_walls = len(self.room_config['wall_cfg']['walls'])  # 8
+        # load data from config file using helper function
+        map_coords, goal_pos, goal_radius = load_room_from_config(
+            self.room_config)
+        self.goal_pos = to_torch(
+            [goal_pos], device=self.device, dtype=torch.float).repeat((self.num_envs, 1))
+        self.goal_radius = to_torch(
+            goal_radius, device=self.device, dtype=torch.float)
+        self.map_coords = to_torch(
+            map_coords, device=self.device, dtype=torch.float).flatten().repeat((self.num_envs, 1))
 
         self.max_episode_length = self.cfg["env"]["episodeLength"]
         # TODO: initiate numObservations dynamically from room_config
-        self.cfg["env"]["numObservations"] = 9 + \
-            4 * self.num_walls + 24 * self.max_num_boxes  # 65
+        self.cfg["env"]["numObservations"] = 65
         self.cfg["env"]["numActions"] = 4
 
         # to be configured later, randomize is set to false for now
@@ -74,29 +80,32 @@ class Summit(VecTask):
             self.gym.viewer_camera_look_at(
                 self.viewer, None, cam_pos, cam_target)
 
-        # ---------------- INITIATE GLOBAL TENSORS ----------------
-        # actor rot states, with shape (num_env, num_actors * 13)
+        # TODO: do we need other buffers (e.g. force)?
+
+        # Get gym GPU buffers
+        # retrieves buffer for actor rot states, with the shape (num_env, num_actors * 13)
         _actor_root_state_tensor = self.gym.acquire_actor_root_state_tensor(
             self.sim)
-        # dof state, with shape (num_env, num_dofs * 2)
+        # retrieves buffer for dof state, with shape (num_env, num_dofs * 2)
         _dof_state_tensor = self.gym.acquire_dof_state_tensor(self.sim)
 
+        # populates tensors with latest data from the simulator
         self.gym.refresh_dof_state_tensor(self.sim)
         self.gym.refresh_actor_root_state_tensor(self.sim)
 
         # store the initial state, used for resetting the agent
         self.actor_root_state_tensor = gymtorch.wrap_tensor(
             _actor_root_state_tensor)
+        # TODO: this needs to change: we have initial pos for both agent and boxes
+        self.initial_root_states = self.actor_root_state_tensor.clone()
 
-        # create some wrapper tensors, these are not clones but pointers!
+        # create some wrapper tensors for different slices
+        # dof state tensors store pos and vel for each dof
         self.dof_state_tensor = gymtorch.wrap_tensor(_dof_state_tensor)
         self.dof_pos = self.dof_state_tensor.view(
             self.num_envs, self.summit_num_dofs, 2)[..., 0]
         self.dof_vel = self.dof_state_tensor.view(
             self.num_envs, self.summit_num_dofs, 2)[..., 1]
-
-        # TODO: update this with dynamic initial states
-        self.initial_root_states = self.actor_root_state_tensor.clone()
 
         self.initial_dof_pos = torch.zeros_like(
             self.dof_pos, device=self.device, dtype=torch.float)
@@ -170,16 +179,6 @@ class Summit(VecTask):
         self.gym.add_ground(self.sim, plane_params)
 
     def _create_envs(self, num_envs, spacing, num_per_row):
-        # load data from config file using helper function
-        map_coords, goal_pos = load_room_from_config(
-            self.room_config)
-        self.map_coords = to_torch(
-            map_coords, device=self.device, dtype=torch.float).flatten().repeat((self.num_envs, 1))
-        self.goal_pos = to_torch(
-            [goal_pos], device=self.device, dtype=torch.float).repeat((self.num_envs, 1))
-        self.goal_radius = to_torch(
-            self.room_config['goal_cfg']['goal_radius'], device=self.device, dtype=torch.float)
-
         # Create lists to keep track of all the assets
         # note that walls is a dictionary
         prim_names = ['robot', 'boxes', 'walls']
