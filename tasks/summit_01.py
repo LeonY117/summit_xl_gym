@@ -35,11 +35,12 @@ class Summit(VecTask):
         # load room configuration (in future we can merge this with global config)
         room_cfg_root = os.path.join(os.path.dirname(
             os.path.abspath(__file__)), "../cfg/rooms")
-        room_cfg_file = 'room_0.yaml'
+        room_cfg_file = 'room_1.yaml'
         with open(f'{room_cfg_root}/{room_cfg_file}', 'r') as f:
             self.room_config = yaml.load(f, Loader=yaml.loader.SafeLoader)
         self.max_num_boxes = len(self.room_config['box_cfg']['boxes'])  # 1
         self.num_walls = len(self.room_config['wall_cfg']['walls'])  # 8
+        self.num_actors = 1 + self.num_walls + self.max_num_boxes
 
         self.max_episode_length = self.cfg["env"]["episodeLength"]
         # TODO: initiate numObservations dynamically from room_config
@@ -112,7 +113,8 @@ class Summit(VecTask):
             1., self.up_axis_idx), device=self.device).repeat((self.num_envs, 1))
 
         self.global_indices = torch.arange(
-            self.num_envs * (10), dtype=torch.int32, device=self.device).view(self.num_envs, -1)
+            self.num_envs * (self.num_actors), dtype=torch.int32, device=self.device).view(self.num_envs, -1)
+        print(self.global_indices.size())
 
         self.dt = self.cfg["sim"]["dt"]
 
@@ -121,17 +123,9 @@ class Summit(VecTask):
 
         self.summit_state_tensor = self.actor_root_state_tensor.view(
             self.num_envs, -1, 13)[:, 0, :13]
-
-        # self.summit_state_tensor = self.actor_root_state_tensor.view(
-        #     self.num_envs, -1, 13)[list(zip(*[torch.arange(self.num_envs), self.actor_handles]))]
-
-        # print(self.summit_state_tensor.size())
-
-        # self.actor_root_pos_tensor = self.actor_root_state_tensor[..., 0:3]
-        # self.actor_root_rot_tensor = self.actor_root_state_tensor[..., 3:7]
-        # self.actor_root_vel_tensor = self.actor_root_state_tensor[..., 7:10]
-        # self.summit_pos_tensor = self.actor_root_pos_tensor[self.actor_handles]
-        # quit()
+        self.box_state_tensor = self.actor_root_state_tensor.view(
+            self.num_envs, -1, 13)[:, 1+self.num_walls:self.num_actors, :13]
+        print(self.box_state_tensor.size())
 
         self.summit_pos_tensor = self.summit_state_tensor[:, 0:3]
         self.summit_rot_tensor = self.summit_state_tensor[:, 3:7]
@@ -142,8 +136,6 @@ class Summit(VecTask):
         dist_to_target[:, 2] = 0.0
         self.potentials = - torch.norm(dist_to_target, p=2, dim=-1) / self.dt
         self.prev_potentials = self.potentials.clone()
-
-        self.box_state_tensor = self.actor_root_state_tensor[self.box_handles]
 
     def create_sim(self):
         self.up_axis_idx = 2  # index of up axis: Y=1, Z=2
@@ -191,7 +183,7 @@ class Summit(VecTask):
             os.path.abspath(__file__)), '../assets')
         summit_asset_file = "summit_xl_description/robots/summit_xls_std_fixed_camera.urdf"
 
-        # Load Summit
+        # Load summit asset
         asset_options = gymapi.AssetOptions()
         asset_options.flip_visual_attachments = False
         asset_options.fix_base_link = False
@@ -209,9 +201,9 @@ class Summit(VecTask):
         self.summit_num_bodies = self.gym.get_asset_rigid_body_count(
             summit_asset)
 
-        # Load box(es)
+        # Load box asset
         box_assets = []
-        box_width = 1
+        box_width = self.room_config['box_cfg']['box_width']
         box_density = 20.
         asset_options = gymapi.AssetOptions()
         asset_options.density = box_density
@@ -220,13 +212,12 @@ class Summit(VecTask):
         box_assets.append(asset_box)
         self.gym_assets['boxes'] = box_assets
 
-        # Load wall(s)
+        # Load wall asset
         wall_assets = {}  # a set with length as key
-        room_walls = self.room_config['walls']
-        wall_height = self.room_config['wall_height']
-        wall_thickness = self.room_config['wall_thickness']
-        wall_widths = set([wall['length']
-                          for (name, wall) in room_walls.items()])
+        room_walls = self.room_config['wall_cfg']['walls']
+        wall_height = self.room_config['wall_cfg']['wall_height']
+        wall_thickness = self.room_config['wall_cfg']['wall_thickness']
+        wall_widths = set([wall['length'] for wall in room_walls])
         wall_asset_options = gymapi.AssetOptions()
         wall_asset_options.fix_base_link = True
         # wall_asset_options.density = 1000.
@@ -257,9 +248,9 @@ class Summit(VecTask):
             env = self.gym.create_env(self.sim, lower, upper, num_per_row)
             self.envs.append(env)
 
-            # add actor
+            # add summit actor
             initial_pose = gymapi.Transform()
-            initial_pose.p = gymapi.Vec3(-7.5, 2.5, 0.)
+            initial_pose.p = gymapi.Vec3(-7.5, 0, 0.)
             initial_pose.r = gymapi.Quat(0., 0., -1., 1.)
 
             actor_handle = self.gym.create_actor(
@@ -268,31 +259,9 @@ class Summit(VecTask):
                 env, actor_handle, summit_dof_props)
             self.actor_handles.append(actor_handle)
 
-            # add box
-            box_handle = self.gym.create_actor(env, self.gym_assets['boxes'][0], gymapi.Transform(
-                p=gymapi.Vec3(-7.5, -1, box_width/2)), 'box', i, 0)
-            self.box_handles.append(box_handle)
-
-            # for each box:
-            box_shape_props = self.gym.get_actor_rigid_shape_properties(
-                env, box_handle)
-            # change properties
-            box_shape_props[0].compliance = 0.
-            box_shape_props[0].friction = 0.1
-            box_shape_props[0].rolling_friction = 0.
-            box_shape_props[0].torsion_friction = 0.
-            self.gym.set_actor_rigid_shape_properties(
-                env, box_handle, box_shape_props)
-
-            box_body_props = self.gym.get_actor_rigid_body_properties(
-                env, box_handle)
-            box_body_props[0].mass *= 10
-            self.gym.set_actor_rigid_body_properties(
-                env, box_handle, box_body_props)
-
-            # Add walls
-            for (name, wall) in room_walls.items():
-                wall_name = name
+            # Add wall actor
+            for wall in room_walls:
+                wall_name = wall['name']
                 wall_thickness = wall_thickness
                 wall_length = wall['length']
                 wall_orientation = wall['orientation']
@@ -310,6 +279,30 @@ class Summit(VecTask):
                 )
                 self.wall_handles.append(wall_handle)
 
+            # add box actor
+            for box in self.room_config['box_cfg']['boxes']:
+                pos_x, pos_y = box['pos_x'], box['pos_y']
+                box_handle = self.gym.create_actor(env, self.gym_assets['boxes'][0], gymapi.Transform(
+                    p=gymapi.Vec3(pos_x, pos_y, box_width/2)), 'box', i, 0)
+                self.box_handles.append(box_handle)
+
+                # for each boxes
+                box_shape_props = self.gym.get_actor_rigid_shape_properties(
+                    env, box_handle)
+                # change properties
+                box_shape_props[0].compliance = 0.
+                box_shape_props[0].friction = 0.1
+                box_shape_props[0].rolling_friction = 0.
+                box_shape_props[0].torsion_friction = 0.
+                self.gym.set_actor_rigid_shape_properties(
+                    env, box_handle, box_shape_props)
+
+                box_body_props = self.gym.get_actor_rigid_body_properties(
+                    env, box_handle)
+                box_body_props[0].mass *= 10
+                self.gym.set_actor_rigid_body_properties(
+                    env, box_handle, box_body_props)
+
     def compute_reward(self, actions):
         self.rew_buf[:], self.reset_buf[:] = compute_summit_reward(
             self.obs_buf, self.progress_buf, self.reset_buf, self.max_episode_length, self.potentials, self.prev_potentials, self.reached_target)
@@ -323,16 +316,8 @@ class Summit(VecTask):
         dist_to_target = self.goal_pos - self.summit_pos_tensor
         dist_to_target[:, 2] = 0.0
 
-        test_vel = self.actor_root_state_tensor[self.actor_handles][:, 7:10]
-        # print(f'summit pos: {self.summit_pos_tensor[0]}')
-        # print(f'summit wheel vel: {self.dof_vel[0]}')
-        # print(f'summit vel: {self.summit_vel_tensor[0]}')
-        # print(f'summit vel_root: {test_vel[0]}')
-        # print(f'dist: {dist_to_target[0]}')
-
         self.prev_potentials = self.potentials.clone()
         self.potentials = -torch.norm(dist_to_target, p=2, dim=-1) / self.dt
-        # print(f'potentials: {self.potentials}')
         self.reached_target = torch.norm(
             dist_to_target, p=2, dim=-1) <= self.goal_radius
 
@@ -343,14 +328,20 @@ class Summit(VecTask):
         summit_vel = self.summit_vel_tensor[:, 0:2]
         summit_rot_roll, summit_rot_pitch, summit_rot_yaw = get_euler_xyz(
             self.summit_rot_tensor)
+
         # wall bounds
         wall_bounds = self.map_coords
         # box keypoints
-        box_keypoints = torch.flatten(
-            gen_keypoints(self.box_state_tensor[:, 0:7]), start_dim=1)
+        boxes_keypoints_buf = torch.ones(
+            self.num_envs, self.max_num_boxes, 24, dtype=torch.float, device=self.device)
+        for i in range(self.max_num_boxes):
+            box_keypoints = (torch.flatten(
+                gen_keypoints(self.box_state_tensor[:, i, 0:7]), start_dim=1))
+            boxes_keypoints_buf[:, i, :] = box_keypoints
+        boxes_keypoints = torch.flatten(boxes_keypoints_buf, start_dim=1)
 
         self.obs_buf = torch.cat(
-            (goal_pos, summit_pos, summit_vel, summit_rot_roll.unsqueeze(-1), summit_rot_pitch.unsqueeze(-1), summit_rot_yaw.unsqueeze(-1), wall_bounds, box_keypoints), dim=-1)
+            (goal_pos, summit_pos, summit_vel, summit_rot_roll.unsqueeze(-1), summit_rot_pitch.unsqueeze(-1), summit_rot_yaw.unsqueeze(-1), wall_bounds, boxes_keypoints), dim=-1)
 
         # compute_summit_observations()
 
@@ -399,17 +390,17 @@ class Summit(VecTask):
     def post_physics_step(self):
         self.progress_buf += 1
         env_ids = self.reset_buf.nonzero(as_tuple=False).flatten()
-        if len(env_ids) > 0:
-            tempSize = self.dof_state_tensor.size()
-            tempSize2 = env_ids.size()
-            print(f'dof_shape: {tempSize}')
-            print(f'env shape: {tempSize2}')
-            tempSize = self.actor_root_state_tensor.size()
-            print(f'state shape: {tempSize}')
-            print(f'resetting {env_ids}')
-            print(f'goal pos is at : {self.goal_pos[0]}')
-            # quit()
-            self.reset_idx(env_ids)
+        # if len(env_ids) > 0:
+        #     tempSize = self.dof_state_tensor.size()
+        #     tempSize2 = env_ids.size()
+        #     print(f'dof_shape: {tempSize}')
+        #     print(f'env shape: {tempSize2}')
+        #     tempSize = self.actor_root_state_tensor.size()
+        #     print(f'state shape: {tempSize}')
+        #     print(f'resetting {env_ids}')
+        #     print(f'goal pos is at : {self.goal_pos[0]}')
+        #     # quit()
+        #     self.reset_idx(env_ids)
 
         self.compute_observations()
         self.compute_reward(self.actions)
