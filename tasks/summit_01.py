@@ -1,12 +1,10 @@
 # version 1 of summit xl steel class
-# the code is adapted from ant.py from isaacgymenvs
 
 from typing import Tuple
 from isaacgym import gymtorch
 from isaacgym import gymapi
 from isaacgym.gymtorch import *
 from isaacgymenvs.utils.torch_jit_utils import *
-
 
 import numpy as np
 import yaml
@@ -85,12 +83,12 @@ class Summit(VecTask):
         self.gym.refresh_dof_state_tensor(self.sim)
         self.gym.refresh_actor_root_state_tensor(self.sim)
 
+        # create some wrapper tensors, these are not clones but pointers!
+        self.dof_state_tensor = gymtorch.wrap_tensor(_dof_state_tensor)
         # store the initial state, used for resetting the agent
         self.actor_root_state_tensor = gymtorch.wrap_tensor(
             _actor_root_state_tensor)
 
-        # create some wrapper tensors, these are not clones but pointers!
-        self.dof_state_tensor = gymtorch.wrap_tensor(_dof_state_tensor)
         self.dof_pos = self.dof_state_tensor.view(
             self.num_envs, self.summit_num_dofs, 2)[..., 0]
         self.dof_vel = self.dof_state_tensor.view(
@@ -250,7 +248,7 @@ class Summit(VecTask):
 
             # add summit actor
             initial_pose = gymapi.Transform()
-            initial_pose.p = gymapi.Vec3(-7.5, 0, 0.)
+            initial_pose.p = gymapi.Vec3(-7.5, 2.5, 0.)
             initial_pose.r = gymapi.Quat(0., 0., -1., 1.)
 
             actor_handle = self.gym.create_actor(
@@ -348,21 +346,29 @@ class Summit(VecTask):
     def reset_idx(self, env_ids):
 
         # reset summit
-        position_noise = torch_rand_float(-0.2, 0.2,
-                                          (len(env_ids), self.summit_num_dofs), device=self.device)
-        velocity_noise = torch_rand_float(-0.1, 0.1,
-                                          (len(env_ids), self.summit_num_dofs), device=self.device)
+        summit_position_noise = torch_rand_float(-0.2, 0.2,
+                                                 (len(env_ids), self.summit_num_dofs), device=self.device)
+        summit_velocity_noise = torch_rand_float(-0.1, 0.1,
+                                                 (len(env_ids), self.summit_num_dofs), device=self.device)
 
-        self.dof_pos[env_ids] = self.initial_dof_pos[env_ids] + position_noise
-        self.dof_vel[env_ids] = velocity_noise
+        self.dof_pos[env_ids] = self.initial_dof_pos[env_ids]
+        self.dof_vel[env_ids] = summit_velocity_noise
 
         env_ids_int32 = env_ids.to(dtype=torch.int32)
         summit_indices = self.global_indices[env_ids, 0].flatten()
+
+        box_indices = self.global_indices[env_ids,
+                                          1 + self.num_walls:].flatten()
 
         self.gym.set_actor_root_state_tensor_indexed(self.sim,
                                                      gymtorch.unwrap_tensor(
                                                          self.initial_root_states),
                                                      gymtorch.unwrap_tensor(summit_indices), len(env_ids_int32))
+
+        self.gym.set_actor_root_state_tensor_indexed(self.sim,
+                                                     gymtorch.unwrap_tensor(
+                                                         self.initial_root_states),
+                                                     gymtorch.unwrap_tensor(box_indices), len(env_ids_int32))
 
         self.gym.set_dof_state_tensor_indexed(self.sim,
                                               gymtorch.unwrap_tensor(
@@ -370,7 +376,7 @@ class Summit(VecTask):
                                               gymtorch.unwrap_tensor(summit_indices), len(env_ids_int32))
 
         dist_to_target = self.goal_pos[env_ids] - \
-            self.initial_root_states[env_ids, 0:3]
+            self.summit_pos_tensor[env_ids]
         dist_to_target[:, 2] = 0.0
         self.prev_potentials[env_ids] = - \
             torch.norm(dist_to_target, p=2, dim=-1) / self.dt
@@ -389,18 +395,20 @@ class Summit(VecTask):
 
     def post_physics_step(self):
         self.progress_buf += 1
+        if (self.progress_buf[0] % 100 == 0):
+            print(f'reward:{self.rew_buf[0]}')
         env_ids = self.reset_buf.nonzero(as_tuple=False).flatten()
-        # if len(env_ids) > 0:
-        #     tempSize = self.dof_state_tensor.size()
-        #     tempSize2 = env_ids.size()
-        #     print(f'dof_shape: {tempSize}')
-        #     print(f'env shape: {tempSize2}')
-        #     tempSize = self.actor_root_state_tensor.size()
-        #     print(f'state shape: {tempSize}')
-        #     print(f'resetting {env_ids}')
-        #     print(f'goal pos is at : {self.goal_pos[0]}')
-        #     # quit()
-        #     self.reset_idx(env_ids)
+        if len(env_ids) > 0:
+            # tempSize = self.dof_state_tensor.size()
+            # tempSize2 = env_ids.size()
+            # print(f'dof_shape: {tempSize}')
+            # print(f'env shape: {tempSize2}')
+            # tempSize = self.actor_root_state_tensor.size()
+            # print(f'state shape: {tempSize}')
+            # print(f'resetting {env_ids}')
+            # print(f'goal pos is at : {self.goal_pos[0]}')
+            # quit()
+            self.reset_idx(env_ids)
 
         self.compute_observations()
         self.compute_reward(self.actions)
@@ -420,7 +428,7 @@ def compute_summit_reward(obs_buf, progress_buf, reset_buf, max_episode_length, 
     # optional: additional penalty for pushing boxes
 
     # penalty for every time step
-    time_cost = -torch.ones_like(potentials) * 0.5
+    time_cost = -torch.ones_like(potentials) * 0.1
 
     # optional: dof at limit
     total_reward = progress_reward + time_cost + reached_goal_reward
@@ -430,6 +438,8 @@ def compute_summit_reward(obs_buf, progress_buf, reset_buf, max_episode_length, 
                         torch.ones_like(reset_buf), reset_buf)
     reset = torch.where(progress_buf >= max_episode_length -
                         1, torch.ones_like(reset_buf), reset)
+    reset = torch.where(total_reward <= -500,
+                        torch.ones_like(reset_buf), reset)
 
     return total_reward, reset
 
