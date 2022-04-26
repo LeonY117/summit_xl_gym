@@ -1,5 +1,7 @@
-# version 1 of summit xl steel class
-# the code is adapted from ant.py from isaacgymenvs
+# version 0 of summit steel class
+# the agent is rendered in the environment with an obstacle
+# obs is mostly complete
+# reward, reset are done in the next iteration
 
 from typing import Tuple
 from isaacgym import gymtorch
