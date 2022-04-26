@@ -1,7 +1,7 @@
 # This script builds on top of load_assets_mult.py
 # Add support for loading an entire map from yaml config files
 # Change direction on up axis from Y to Z (to be congruent with base/Vec_task)
-# Refactor of cached tensors in several aspects
+# Monitor physics data in simulation loop
 
 from mimetypes import init
 from isaacgym import gymapi
