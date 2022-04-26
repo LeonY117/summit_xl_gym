@@ -111,8 +111,8 @@ gym_assets['boxes'] = box_assets
 # Load wall(s)
 wall_assets = {}  # a set with length as key
 room_walls = room_config['walls']
-wall_height = room_config['height']
-wall_thickness = room_config['thickness']
+wall_height = room_config['wall_height']
+wall_thickness = room_config['wall_thickness']
 wall_widths = set([wall['length'] for (name, wall) in room_walls.items()])
 wall_asset_options = gymapi.AssetOptions()
 wall_asset_options.fix_base_link = True
@@ -124,7 +124,7 @@ for width in wall_widths:
 gym_assets['walls'] = wall_assets
 
 # set up the env grid
-num_envs = 16
+num_envs = 1
 num_per_row = 4
 spacing = 12
 env_lower = gymapi.Vec3(-spacing, 0.0, -spacing)
@@ -150,6 +150,7 @@ for i in range(num_envs):
     # add actor
     initial_pose = gymapi.Transform()
     initial_pose.p = gymapi.Vec3(-7.5, 2.5, 0.)
+    # initial_pose.p = gymapi.Vec3(0, 0, 0)
     initial_pose.r = gymapi.Quat(0., 0., -1., 1.)
 
     actor_handle = gym.create_actor(
@@ -207,27 +208,6 @@ for i in range(num_envs):
     props['damping'].fill(1000.0)
     gym.set_actor_dof_properties(env, actor_handle, props)
 
-    # velocity = 2
-    # for dof_handle in range(gym.get_actor_dof_count(env, actor_handle)):
-    #     gym.set_dof_target_velocity(env, dof_handle, velocity)
-
-    # # Set DOF drive targets
-    # front_left_wheel_handle0 = gym.find_actor_dof_handle(
-    #     env, actor_handle, 'summit_xl_front_left_wheel_joint')
-    # front_right_wheel_handle0 = gym.find_actor_dof_handle(
-    #     env, actor_handle, 'summit_xl_front_right_wheel_joint')
-    # back_left_wheel_handle0 = gym.find_actor_dof_handle(
-    #     env, actor_handle, 'summit_xl_back_left_wheel_joint')
-    # back_right_wheel_handle0 = gym.find_actor_dof_handle(
-    #     env, actor_handle, 'summit_xl_back_right_wheel_joint')
-
-    # # # Control DOF to make robot move forward
-    # velocity = 1
-    # gym.set_dof_target_velocity(env, back_left_wheel_handle0, velocity)
-    # gym.set_dof_target_velocity(env, back_right_wheel_handle0, velocity)
-    # gym.set_dof_target_velocity(env, front_left_wheel_handle0, velocity)
-    # gym.set_dof_target_velocity(env, front_right_wheel_handle0, velocity)
-
 # Handles are just indices (but useful when there are multiple envs)
 print(f'env handles: {envs}')
 print(f'summit actor handle: {actor_handles}')
@@ -238,6 +218,7 @@ print(f'wall handles: {wall_handles}')
 _actor_root_state_tensor = gym.acquire_actor_root_state_tensor(sim)
 _dof_state_tensor = gym.acquire_dof_state_tensor(sim)
 _force_sensor_tensor = gym.acquire_force_sensor_tensor(sim)
+_net_contact_force_tensor = gym.acquire_net_contact_force_tensor(sim)
 
 
 # To read these tensors:
@@ -245,6 +226,7 @@ actor_root_state_tensor = gymtorch.wrap_tensor(_actor_root_state_tensor)
 dof_state_tensor = gymtorch.wrap_tensor(_dof_state_tensor)
 dof_vel_tensor = dof_state_tensor[:, 1]
 force_sensor_tensor = gymtorch.wrap_tensor(_force_sensor_tensor)
+net_contact_force_tensor = gymtorch.wrap_tensor(_net_contact_force_tensor)
 
 print(actor_root_state_tensor.size())
 print(dof_state_tensor.size())
@@ -259,6 +241,9 @@ summit_vel_tensor = summit_state_tensor[7:10]
 summit_front_sensor_tensor = force_sensor_tensor[0][0:3]
 summit_front_torque_sensor_tensor = force_sensor_tensor[0][3:7]
 
+summit_net_contact_force_tensor = net_contact_force_tensor.view(
+    num_envs, -1, 3)[:, 0]
+
 print(summit_state_tensor)
 
 
@@ -271,6 +256,8 @@ summit_pos_x, summit_pos_y = [], []
 summit_vel, summit_wheel_vel = [], []
 sensor_forces, sensor_torques = [], []
 
+gym.draw_env_rigid_contacts(viewer, env, gymapi.Vec3(255, 0, 0), 1., 0)
+
 # check the effect of box weight and environment friction
 while not gym.query_viewer_has_closed(viewer):
 
@@ -278,6 +265,11 @@ while not gym.query_viewer_has_closed(viewer):
         gym.refresh_actor_root_state_tensor(sim)
         gym.refresh_dof_state_tensor(sim)
         gym.refresh_force_sensor_tensor(sim)
+        gym.refresh_net_contact_force_tensor(sim)
+
+        contacts = gym.get_env_rigid_contacts(env)
+        print(len(contacts))
+
         vel_y = summit_vel_tensor[1]
         # print(f'wheel: {dof_vel_tensor[0]}')
         # print(f'pos_y: {summit_pos_tensor[1]}')
@@ -290,6 +282,8 @@ while not gym.query_viewer_has_closed(viewer):
         sensor_data = summit_front_sensor_tensor
         sensor_forces.append(sensor_data.tolist())
         sensor_torques.append(summit_front_torque_sensor_tensor.tolist())
+
+        # print(summit_net_contact_force_tensor[0])
 
         # print([summit_pos_x[-1], summit_pos_y[-1]])
 
@@ -315,8 +309,8 @@ gym.destroy_viewer(viewer)
 gym.destroy_sim(sim)
 
 # plot position of summit to check that coord is correct
-plt.plot(summit_pos_x, summit_pos_y)
-plt.show()
+# plt.plot(summit_pos_x, summit_pos_y)
+# plt.show()
 
 quit()
 
