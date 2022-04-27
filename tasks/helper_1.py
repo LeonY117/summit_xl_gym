@@ -1,8 +1,6 @@
 import torch
 from isaacgym import gymtorch, gymapi
 
-#
-
 
 def load_room_from_config(room_dict):
     '''
@@ -35,13 +33,13 @@ def load_room_from_config(room_dict):
 
 def map_to_coord(walls):
     '''
-    Takes in the map dictionary and returns a list of vectors representing boundaries
+    Takes in the map list and returns a list of vectors representing boundaries
 
     Args: 
-        walls: dictionary of all the walls indexed by names
+        walls: array of n wall objects
 
     Returns: 
-        list with shape (2 x 2 x n)
+        list with shape (2 x 2 x n) 
     '''
 
     out = []
@@ -57,3 +55,55 @@ def map_to_coord(walls):
         out.append([[x1, y1], [x2, y2]])
 
     return out
+
+
+def get_wall_bounds(radius, wall_coords):
+    '''
+    Computes boundary around walls where objects cannot spawn
+
+    Args: 
+        radius: float,
+        wall_coords: tensor in the form of [[[x1, y1], [x2, y2]], ...]
+
+    Returns: 
+        bounds: list in the form of [[[x_min, x_max], [y_min, y_max]], ...]
+    '''
+
+    bounds = []
+    for coord in wall_coords:
+        [[x1, y1], [x2, y2]] = coord
+        # note that we can only do this because the walls are either vertical or horizontal
+        x_min, x_max = x1 - radius, x2 + radius
+        y_min, y_max = y1 - radius, y2 + radius
+        # is_vertical = x1 == x2
+        # if is_vertical:
+        #     x_min, x_max = x1 - radius, x2 + radius
+        #     y_min, y_max = y1 - radius, y2 + radius
+        # else:
+        #     x_min, x_max = x1, x1
+        #     y_min, y_max = y1 - radius, y1 + radius
+        bounds.append([[x_min, x_max], [y_min, y_max]])
+
+    return bounds
+
+
+def collides(point, bound):
+    '''
+    Takes a 2D coordinate and bound and returns if the coordinate is within the bound
+
+    Args: 
+        point: [x, y],
+        bound: [[x1, y1], [x2, y2]]
+
+    Returns: 
+        collides: boolean
+    '''
+    [[x1, x2], [y1, y2]] = bound
+    [x, y] = point
+    return x1 < x < x2 and y1 < y < y2
+
+
+def dist(p1, p2):
+    [x1, y1] = p1
+    [x2, y2] = p2
+    return ((x1-x2)**2 + (y1-y2)**2)**0.5

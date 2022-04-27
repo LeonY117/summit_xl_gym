@@ -8,8 +8,10 @@ from isaacgym import gymapi
 from isaacgym import gymutil
 from isaacgym import gymtorch
 from helper import load_room_from_config
+from helper_1 import get_wall_bounds, collides, dist
 
 import numpy as np
+import random
 import torch
 import matplotlib.pyplot as plt
 import os
@@ -82,6 +84,7 @@ with open(f'{room_cfg_root}/{room_file}', 'r') as f:
     room_config = yaml.load(f, Loader=yaml.loader.SafeLoader)
 
 map_coords, goal_pos, goal_radius = load_room_from_config(room_config)
+map_bounds = get_wall_bounds(2**0.5, map_coords)
 
 # Load Summit
 asset_options = gymapi.AssetOptions()
@@ -124,7 +127,7 @@ for width in wall_widths:
 gym_assets['walls'] = wall_assets
 
 # set up the env grid
-num_envs = 1
+num_envs = 16
 num_per_row = 4
 spacing = 12
 env_lower = gymapi.Vec3(-spacing, 0.0, -spacing)
@@ -150,7 +153,7 @@ for i in range(num_envs):
     # add actor
     initial_pose = gymapi.Transform()
     initial_pose.p = gymapi.Vec3(-7.5, 2.5, 0.)
-    # initial_pose.p = gymapi.Vec3(0, 0, 0)
+    # initial_pose.p = gymapi.Vec3(-7.5, -0.8, 0)
     initial_pose.r = gymapi.Quat(0., 0., -1., 1.)
 
     actor_handle = gym.create_actor(
@@ -173,6 +176,12 @@ for i in range(num_envs):
 
     box_body_props = gym.get_actor_rigid_body_properties(env, box_handle)
     box_body_props[0].mass *= 1
+    gym.set_actor_rigid_body_properties(env, box_handle, box_body_props)
+
+    box_handle = gym.create_actor(env, gym_assets['boxes'][0], gymapi.Transform(
+        p=gymapi.Vec3(-7.5, -2, box_width/2)), 'box', i, 0)
+    box_handles.append(box_handle)
+    gym.set_actor_rigid_shape_properties(env, box_handle, box_shape_props)
     gym.set_actor_rigid_body_properties(env, box_handle, box_body_props)
 
     # Add wall
@@ -214,19 +223,22 @@ print(f'summit actor handle: {actor_handles}')
 print(f'box handles: {box_handles}')
 print(f'wall handles: {wall_handles}')
 
+num_actors = 1 + 2 + 8
+global_indices = torch.arange(
+    num_envs * (num_actors), dtype=torch.int32).view(num_envs, -1)
 # Acquire global tensors
 _actor_root_state_tensor = gym.acquire_actor_root_state_tensor(sim)
 _dof_state_tensor = gym.acquire_dof_state_tensor(sim)
 _force_sensor_tensor = gym.acquire_force_sensor_tensor(sim)
 _net_contact_force_tensor = gym.acquire_net_contact_force_tensor(sim)
 
-
 # To read these tensors:
 actor_root_state_tensor = gymtorch.wrap_tensor(_actor_root_state_tensor)
 dof_state_tensor = gymtorch.wrap_tensor(_dof_state_tensor)
 dof_vel_tensor = dof_state_tensor[:, 1]
 force_sensor_tensor = gymtorch.wrap_tensor(_force_sensor_tensor)
-net_contact_force_tensor = gymtorch.wrap_tensor(_net_contact_force_tensor)
+net_contact_force_tensor = gymtorch.wrap_tensor(
+    _net_contact_force_tensor).view(num_envs, -1, 3)
 
 print(actor_root_state_tensor.size())
 print(dof_state_tensor.size())
@@ -234,64 +246,157 @@ print(dof_state_tensor.size())
 print(actor_root_state_tensor[actor_handles].size())
 
 # Let's take a look at the robot in the first env
-summit_state_tensor = actor_root_state_tensor[actor_handles[0]]
-summit_pos_tensor = summit_state_tensor[0:3]
-summit_vel_tensor = summit_state_tensor[7:10]
+summit_state_tensor = actor_root_state_tensor.view(num_envs, -1, 13)
+summit_pos_tensor = summit_state_tensor[:, 0, 0:3]
+summit_vel_tensor = summit_state_tensor[:, 0, 0:3]
 
-summit_front_sensor_tensor = force_sensor_tensor[0][0:3]
-summit_front_torque_sensor_tensor = force_sensor_tensor[0][3:7]
+# summit_front_sensor_tensor = force_sensor_tensor[0][0:3]
+# summit_front_torque_sensor_tensor = force_sensor_tensor[0][3:7]
 
-summit_net_contact_force_tensor = net_contact_force_tensor.view(
-    num_envs, -1, 3)[:, 0]
+summit_bodies_force_tensor = net_contact_force_tensor[0, :22, :]
+box_force_tensor = net_contact_force_tensor[0, 22, :]
+walls_force_tensor = net_contact_force_tensor[0, 23:, :]
 
-print(summit_state_tensor)
-
+# used for resetting
+boxes_state_tensor = actor_root_state_tensor.view(num_envs, -1, 13)
+boxes_pos_tensor = boxes_state_tensor[:, 1:3, 0:3]
 
 # Simulate
 t = 0
 log_dt = 10
+reset_dt = 10
 
 # create some lists to hold data to be ploted later
 summit_pos_x, summit_pos_y = [], []
 summit_vel, summit_wheel_vel = [], []
 sensor_forces, sensor_torques = [], []
 
+summit_forces, box_forces, wall_forces = [], [], []
+
 gym.draw_env_rigid_contacts(viewer, env, gymapi.Vec3(255, 0, 0), 1., 0)
+
+max_num_boxes = 2  # this should be global in the actual file
+room_width, room_height = 20, 10  # should be loaded from config
+radius = 2 ** 0.5
 
 # check the effect of box weight and environment friction
 while not gym.query_viewer_has_closed(viewer):
+    gym.refresh_actor_root_state_tensor(sim)
+    gym.refresh_dof_state_tensor(sim)
+    gym.refresh_force_sensor_tensor(sim)
+    gym.refresh_net_contact_force_tensor(sim)
 
     if (t - 99) % log_dt == 0:
-        gym.refresh_actor_root_state_tensor(sim)
-        gym.refresh_dof_state_tensor(sim)
-        gym.refresh_force_sensor_tensor(sim)
-        gym.refresh_net_contact_force_tensor(sim)
+        # Log data at certain interval
 
-        contacts = gym.get_env_rigid_contacts(env)
-        print(len(contacts))
+        # contacts = gym.get_env_rigid_contacts(env)
+        # print(len(contacts))
 
-        vel_y = summit_vel_tensor[1]
+        summit_contacts = torch.norm(summit_bodies_force_tensor, p=2, dim=-1)
+        # contacts = torch.where(contacts > 100, 1, 0)
+        summit_contacts = torch.sum(summit_contacts, dim=-1)
+        summit_forces.append(summit_contacts)
+
+        box_contacts = torch.norm(box_force_tensor, p=2, dim=-1)
+        # contacts = torch.where(contacts > 100, 1, 0)
+        box_contacts = torch.sum(box_contacts, dim=-1)
+        box_forces.append(box_contacts)
+
+        # if (box_contacts.item() > 200 or box_contacts.item() < 190) and t <= 1:
+        #     print('collision with box!')
+        #     break
+
+        wall_contacts = torch.norm(walls_force_tensor, p=2, dim=-1)
+        wall_contacts = torch.sum(wall_contacts, dim=-1)
+        wall_forces.append(wall_contacts)
+
+        # if wall_contacts > 0:
+        #     print('collision with wall')
+
+        # vel_y = summit_vel_tensor[1]
         # print(f'wheel: {dof_vel_tensor[0]}')
         # print(f'pos_y: {summit_pos_tensor[1]}')
         # print(f'vel_y: {vel_y}')
-        summit_pos_x.append(summit_pos_tensor[0].item())
-        summit_pos_y.append(summit_pos_tensor[1].item())
-        summit_vel.append(vel_y.abs().item())
-        summit_wheel_vel.append(torch.mean(dof_vel_tensor[0]).item())
+        # summit_pos_x.append(summit_pos_tensor[0].item())
+        # summit_pos_y.append(summit_pos_tensor[1].item())
+        # summit_vel.append(vel_y.abs().item())
+        # summit_wheel_vel.append(torch.mean(dof_vel_tensor[0]).item())
 
-        sensor_data = summit_front_sensor_tensor
-        sensor_forces.append(sensor_data.tolist())
-        sensor_torques.append(summit_front_torque_sensor_tensor.tolist())
+        # sensor_data = summit_front_sensor_tensor
+        # sensor_forces.append(sensor_data.tolist())
+        # sensor_torques.append(summit_front_torque_sensor_tensor.tolist())
 
         # print(summit_net_contact_force_tensor[0])
 
         # print([summit_pos_x[-1], summit_pos_y[-1]])
 
-    # step the physics
+    if (t - reset_dt) % reset_dt == 0:
+        # print('RESETTING')
+        # reset every environment
+        reset_env_indices = range(num_envs)
+        reset_box_pos = torch.ones_like(boxes_pos_tensor)
+        summit_indices = global_indices[reset_env_indices, 0].flatten()
+        box_indices = global_indices[reset_env_indices, 1:3].flatten()
+
+        for env_idx in reset_env_indices:
+            box_idx = 0
+            box_poses = [[-100, -100]] * max_num_boxes  # should be tensor
+            while box_idx < max_num_boxes:
+                rePosition = False
+                pos = [random.uniform(-1, 1) * (room_width/2 - radius),
+                       random.uniform(-1, 1) * (room_height/2 - radius)]
+                # wall_bounds = get_wall_bounds(radius, walls)
+                for bound in map_bounds:
+                    if collides(pos, bound):
+                        rePosition = True
+                        break
+                for pos2 in box_poses:
+                    if dist(pos, pos2) <= radius * 2:
+                        rePosition = True
+                        break
+                if rePosition:
+                    continue
+                box_poses[box_idx] = pos
+                reset_box_pos[env_idx][box_idx][0] = pos[0]
+                reset_box_pos[env_idx][box_idx][1] = pos[1]
+                reset_box_pos[env_idx][box_idx][2] = box_width/2
+                box_idx += 1
+            # reposition summit
+            invalid_summit_pos = True
+            while invalid_summit_pos:
+                pos = [random.uniform(-1, 1) * (room_width/2 - radius),
+                       random.uniform(-1, 1) * (room_height/2 - radius)]
+                invalid_summit_pos = False
+                for bound in map_bounds:
+                    if collides(pos, bound):
+                        invalid_summit_pos = True
+                        break
+                for pos2 in box_poses:
+                    if dist(pos, pos2) <= radius * 2:
+                        invalid_summit_pos = True
+                        break
+                if invalid_summit_pos:
+                    continue
+                summit_pos_tensor[env_idx][0] = pos[0]
+                summit_pos_tensor[env_idx][1] = pos[1]
+                summit_pos_tensor[env_idx][2] = 0
+
+        boxes_pos_tensor[:] = reset_box_pos
+        gym.set_actor_root_state_tensor_indexed(sim,
+                                                gymtorch.unwrap_tensor(
+                                                    actor_root_state_tensor),
+                                                gymtorch.unwrap_tensor(box_indices), len(box_indices))
+        gym.set_actor_root_state_tensor_indexed(sim,
+                                                gymtorch.unwrap_tensor(
+                                                    actor_root_state_tensor),
+                                                gymtorch.unwrap_tensor(summit_indices), len(summit_indices))
+
+    # set target
     dummy_vel_tensor = torch.ones_like(dof_vel_tensor) * 1
     vel_tensor = gymtorch.unwrap_tensor(dummy_vel_tensor)
     gym.set_dof_velocity_target_tensor(sim, vel_tensor)
 
+    # step the physics
     gym.simulate(sim)
     gym.fetch_results(sim, True)
 
@@ -299,8 +404,8 @@ while not gym.query_viewer_has_closed(viewer):
     gym.step_graphics(sim)
     gym.draw_viewer(viewer, sim, True)
 
-    if t == 6000:
-        break
+    # if t == 6000:
+    #     break
     t += 1
 
 print('Simulation Done')
@@ -310,6 +415,18 @@ gym.destroy_sim(sim)
 
 # plot position of summit to check that coord is correct
 # plt.plot(summit_pos_x, summit_pos_y)
+# plt.show()87i89
+
+# plot forces experienced by summit, box, and wall
+# plt.subplot(1, 3, 1)
+# plt.plot(summit_forces)
+
+# plt.subplot(1, 3, 2)
+# plt.plot(box_forces)
+
+# plt.subplot(1, 3, 3)
+# plt.plot(wall_forces)
+
 # plt.show()
 
 quit()
