@@ -114,8 +114,8 @@ gym_assets['boxes'] = box_assets
 # Load wall(s)
 wall_assets = {}  # a set with length as key
 room_walls = room_config['walls']
-wall_height = room_config['height']
-wall_thickness = room_config['thickness']
+wall_height = room_config['wall_height']
+wall_thickness = room_config['wall_thickness']
 wall_widths = set([wall['length'] for (name, wall) in room_walls.items()])
 wall_asset_options = gymapi.AssetOptions()
 wall_asset_options.fix_base_link = True
@@ -154,7 +154,14 @@ for i in range(num_envs):
     # add actor
     initial_pose = gymapi.Transform()
     initial_pose.p = gymapi.Vec3(-7.5, 2.5, 0.)
-    initial_pose.r = gymapi.Quat(0., 0., -1., 1.)
+    initial_quat = gymapi.Quat(0., 0., -1., 1.)
+    # initial_pose.r = initial_quat
+    # ROTATE summit about z-axis
+    test_quat = gymapi.Quat.from_axis_angle(gymapi.Vec3(0., 0., 1.), 3.14/4)
+    print(test_quat)
+    combined_quat = initial_quat * test_quat
+    print(combined_quat)
+    initial_pose.r = combined_quat
 
     actor_handle = gym.create_actor(
         env, gym_assets['robot'], initial_pose, 'summit', i, 0)
@@ -222,7 +229,7 @@ for i in range(num_envs):
         env, actor_handle, 'summit_xl_back_right_wheel_joint')
 
     # # Control DOF to make robot move forward
-    velocity = 1
+    velocity = 0
     gym.set_dof_target_velocity(env, back_left_wheel_handle0, velocity)
     gym.set_dof_target_velocity(env, back_right_wheel_handle0, velocity)
     gym.set_dof_target_velocity(env, front_left_wheel_handle0, velocity)
@@ -312,7 +319,7 @@ gym.destroy_sim(sim)
 
 # plot position of summit to check that coord is correct
 plt.plot(summit_pos_x, summit_pos_y)
-plt.show()
+# plt.show()
 
 quit()
 
