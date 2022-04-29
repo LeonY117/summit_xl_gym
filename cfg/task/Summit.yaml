@@ -9,7 +9,7 @@ env:
   numEnvs: ${resolve_default:4096,${...num_envs}}
   envSpacing: 12
   episodeLength: 1000
-  enableDebugVis: False
+  enableDebugVis: True
 
   clipActions: 1.0
 
@@ -25,13 +25,18 @@ env:
 
   asset:
     assetFileName: "summit_xl_description/robots/summit_xls_std_fixed_camera.urdf"
+  
+  # room configs
+  useBoxes: False
+  useDefaultBoxPos: False
+  
 
   # set to True if you use camera sensors in the environment
   enableCameraSensors: False
 
 sim:
   dt: 0.0166 # 1/60 s
-  substeps: 2
+  substeps: 1
   up_axis: "z"
   use_gpu_pipeline: ${eq:${...pipeline},"gpu"}
   gravity: [0.0, 0.0, -9.81]
