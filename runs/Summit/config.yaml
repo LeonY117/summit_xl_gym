@@ -4,8 +4,8 @@ task:
   env:
     numEnvs: ${resolve_default:4096,${...num_envs}}
     envSpacing: 12
-    episodeLength: 500
-    enableDebugVis: false
+    episodeLength: 5000
+    enableDebugVis: true
     clipActions: 1.0
     powerScale: 1.0
     controlFrequencyInv: 1
@@ -15,17 +15,18 @@ task:
       restitution: 0.0
     asset:
       assetFileName: summit_xl_description/robots/summit_xls_std_fixed_camera.urdf
+    useBoxes: false
+    useDefaultBoxPos: false
     enableCameraSensors: false
-
   sim:
     dt: 0.0166
-    substeps: 2
+    substeps: 1
     up_axis: z
     use_gpu_pipeline: ${eq:${...pipeline},"gpu"}
     gravity:
-      - 0.0
-      - 0.0
-      - -9.81
+    - 0.0
+    - 0.0
+    - -9.81
     physx:
       num_threads: ${....num_threads}
       solver_type: ${....solver_type}
@@ -46,14 +47,14 @@ task:
       frequency: 600
       observations:
         range:
-          - 0
-          - 0.002
+        - 0
+        - 0.002
         operation: additive
         distribution: gaussian
       actions:
         range:
-          - 0.0
-          - 0.02
+        - 0.0
+        - 0.02
         operation: additive
         distribution: gaussian
 train:
@@ -78,9 +79,9 @@ train:
           fixed_sigma: true
       mlp:
         units:
-          - 256
-          - 128
-          - 64
+        - 256
+        - 128
+        - 64
         activation: elu
         d2rl: false
         initializer:
@@ -110,8 +111,8 @@ train:
       schedule_type: legacy
       kl_threshold: 0.008
       score_to_win: 20000
-      max_epochs: ${resolve_default:500,${....max_iterations}}
-      save_best_after: 200
+      max_epochs: ${resolve_default:10000,${....max_iterations}}
+      save_best_after: 10000
       save_frequency: 50
       grad_norm: 1.0
       entropy_coef: 0.0
@@ -125,11 +126,11 @@ train:
       seq_len: 4
       bounds_loss_coef: 0.0001
 task_name: ${task.name}
-experiment: ""
-num_envs: ""
+experiment: ''
+num_envs: ''
 seed: 42
 torch_deterministic: false
-max_iterations: ""
+max_iterations: ''
 physics_engine: physx
 pipeline: gpu
 sim_device: cuda:0
@@ -139,6 +140,6 @@ num_threads: 4
 solver_type: 1
 num_subscenes: 4
 test: false
-checkpoint: ""
+checkpoint: ''
 multi_gpu: false
 headless: false
