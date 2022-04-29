@@ -20,10 +20,6 @@ def load_room_from_config(room_dict):
     goal_x = goal_cfg['goal_x']
     goal_y = goal_cfg['goal_y']
     goal_z = goal_cfg['goal_z'] if 'goal_z' in goal_cfg else 0.
-    goal_radius = goal_cfg['goal_radius']
-
-    boxes = box_cfg['boxes']
-    num_boxes = len(boxes)
 
     wall_coords = map_to_coord(wall_cfg['walls'])
     goal_pos = [goal_x, goal_y, goal_z]
