@@ -42,8 +42,7 @@ class Summit(VecTask):
         self.num_actors = 1 + self.num_walls + self.max_num_boxes
 
         self.max_episode_length = self.cfg["env"]["episodeLength"]
-        self.cfg["env"]["numObservations"] = 9 + \
-            4 * self.num_walls + 24 * self.max_num_boxes  # 65
+        self.cfg["env"]["numObservations"] = 12 + 24 * self.max_num_boxes  # 65
         self.cfg["env"]["numActions"] = 4
 
         # to be configured later, randomize is set to false for now
@@ -127,13 +126,15 @@ class Summit(VecTask):
         self.summit_pos_tensor = self.summit_state_tensor[:, 0:3]
         self.summit_rot_tensor = self.summit_state_tensor[:, 3:7]
         self.summit_vel_tensor = self.summit_state_tensor[:, 7:10]
+        self.summit_ang_vel_tensor = self.summit_state_tensor[:, 10:13]
         self.boxes_pos_tensor = self.box_state_tensor[:, :, 0:3]
         self.boxes_rot_tensor = self.box_state_tensor[:, :, 3:7]
 
         # calculate potentials (not hard coded & depends on init pos)
-        dist_to_target = self.goal_pos - self.summit_pos_tensor
-        dist_to_target[:, 2] = 0.0
-        self.potentials = - torch.norm(dist_to_target, p=2, dim=-1) / self.dt
+        self.dist_to_target = self.goal_pos - self.summit_pos_tensor
+        self.dist_to_target[:, 2] = 0.0
+        self.dist_to_target = torch.norm(self.dist_to_target, p=2, dim=-1)
+        self.potentials = - self.dist_to_target / self.dt
         self.prev_potentials = self.potentials.clone()
         self.reached_target = torch.zeros_like(self.potentials)
 
@@ -317,51 +318,16 @@ class Summit(VecTask):
 
     def compute_reward(self, actions):
         self.rew_buf[:], self.reset_buf[:] = compute_summit_reward(
-            self.obs_buf, self.progress_buf, self.reset_buf, self.max_episode_length, self.potentials, self.prev_potentials, self.reached_target)
+            self.obs_buf, self.progress_buf, self.reset_buf, self.max_episode_length, self.potentials, self.prev_potentials, self.reached_target, self.dist_to_target)
 
     def compute_observations(self):
         self.gym.refresh_dof_state_tensor(self.sim)
         self.gym.refresh_actor_root_state_tensor(self.sim)
         self.gym.refresh_net_contact_force_tensor(self.sim)
 
-        self.obs_buf[:], self.reached_target[:] = compute_summit_observations(self.potentials, self.prev_potentials, self.num_envs, self.max_num_boxes, self.dt,
-                                                                              self.goal_pos, self.goal_radius, self.map_coords, self.summit_pos_tensor,
-                                                                              self.summit_vel_tensor, self.summit_rot_tensor, self.box_state_tensor)
-
-        # update internal states
-        # dist_to_target = self.goal_pos - self.summit_pos_tensor
-        # dist_to_target[:, 2] = 0.0
-        # dist_to_target = torch.norm(dist_to_target, p=2, dim=-1)
-
-        # self.prev_potentials = self.potentials.clone()
-        # self.potentials = -dist_to_target / self.dt
-
-        # self.reached_target = torch.where(dist_to_target <= self.goal_radius, torch.ones_like(
-        #     dist_to_target), torch.zeros_like(dist_to_target))
-
-        # goal_pos = self.goal_pos[:, 0:2]
-        # # summit pos, vel, rot, reducing to 2d
-        # summit_pos = self.summit_pos_tensor[:, 0:2]
-        # summit_vel = self.summit_vel_tensor[:, 0:2]
-        # summit_rot_roll, summit_rot_pitch, summit_rot_yaw = get_euler_xyz(
-        #     self.summit_rot_tensor)
-
-        # # wall bounds
-        # wall_bounds = self.map_coords
-
-        # # box keypoints
-        # boxes_keypoints_buf = torch.ones(
-        #     self.num_envs, self.max_num_boxes, 24, dtype=torch.float, device=self.device)
-        # for i in range(self.max_num_boxes):
-        #     box_keypoints = (torch.flatten(
-        #         gen_keypoints(self.box_state_tensor[:, i, 0:7]), start_dim=1))
-        #     boxes_keypoints_buf[:, i, :] = box_keypoints
-        # boxes_keypoints = torch.flatten(boxes_keypoints_buf, start_dim=1)
-
-        # self.obs_buf = torch.cat(
-        #     (goal_pos, summit_pos, summit_vel, summit_rot_roll.unsqueeze(-1),
-        #         summit_rot_pitch.unsqueeze(-1), summit_rot_yaw.unsqueeze(-1),
-        #         wall_bounds, boxes_keypoints), dim=-1)
+        self.obs_buf[:], self.reached_target[:], self.potentials[:], self.prev_potentials[:] = compute_summit_observations(self.potentials, self.prev_potentials, self.num_envs, self.max_num_boxes, self.dt,
+                                                                                                                           self.goal_pos, self.goal_radius, self.map_coords, self.summit_pos_tensor,
+                                                                                                                           self.summit_vel_tensor, self.summit_rot_tensor,  self.summit_ang_vel_tensor, self.box_state_tensor, self.dist_to_target)
 
     def reset_idx(self, env_ids):
 
@@ -378,7 +344,7 @@ class Summit(VecTask):
             box_poses = [[-100, -100]] * self.max_num_boxes
             while box_idx < self.max_num_boxes:
                 reposition = False
-                pos = [random.uniform(-1, 1) * (self.room_width/2 - self.object_radius),
+                pos = [random.uniform(-0.5, 1) * (self.room_width/2 - self.object_radius),
                        random.uniform(-1, 1) * (self.room_height/2 - self.object_radius)]
                 for bound in self.map_bounds:
                     if collides(pos, bound):
@@ -402,8 +368,8 @@ class Summit(VecTask):
             # RESET SUMMIT
             invalid_summit_pos = True
             while invalid_summit_pos:
-                pos = [random.uniform(-1, 1) * (self.room_width/2 - self.object_radius),
-                       random.uniform(-1, 1) * (self.room_height/2 - self.object_radius)]
+                pos = [random.uniform(-1, -0.5) * (self.room_width/2 - self.object_radius),
+                       random.uniform(-1, 0) * (self.room_height/2 - self.object_radius)]
                 invalid_summit_pos = False
                 for bound in self.map_bounds:
                     if collides(pos, bound):
@@ -455,8 +421,9 @@ class Summit(VecTask):
         dist_to_target = self.goal_pos[env_ids] - \
             self.summit_pos_tensor[env_ids]
         dist_to_target[:, 2] = 0.0
+        self.dist_to_target[env_ids] = torch.norm(dist_to_target, p=2, dim=-1)
         self.prev_potentials[env_ids] = - \
-            torch.norm(dist_to_target, p=2, dim=-1) / self.dt
+            self.dist_to_target[env_ids] / self.dt
         self.potentials[env_ids] = self.prev_potentials[env_ids].clone()
 
         self.progress_buf[env_ids] = 0
@@ -504,13 +471,16 @@ def gen_keypoints(pose: torch.Tensor, num_keypoints: int = 8, size: Tuple[float,
 
 
 @ torch.jit.script
-def compute_summit_reward(obs_buf, progress_buf, reset_buf, max_episode_length, potentials, prev_potentials, reached_target):
-    # type: (Tensor, Tensor, Tensor, float, Tensor, Tensor, Tensor) -> Tuple[Tensor, Tensor]
+def compute_summit_reward(obs_buf, progress_buf, reset_buf, max_episode_length, potentials, prev_potentials, reached_target, dist_to_target):
+    # type: (Tensor, Tensor, Tensor, float, Tensor, Tensor, Tensor, Tensor) -> Tuple[Tensor, Tensor]
     # euclidian distance to goal
-    progress_reward = potentials - prev_potentials
+    progress_reward = (potentials - prev_potentials) * 0.1
+
+    max_dist = 20
+    dist_reward = ((max_dist - dist_to_target) / max_dist) * 0.2
 
     # reached target reward
-    reached_goal_reward = reached_target * 50
+    reached_goal_reward = reached_target * 100
 
     # num_reached = torch.sum(reached_target, dim = -1).item()
     # if num_reached > 0:
@@ -521,18 +491,16 @@ def compute_summit_reward(obs_buf, progress_buf, reset_buf, max_episode_length, 
     # optional: additional penalty for pushing walls
 
     # penalty for every time step
-    time_cost = -torch.ones_like(potentials) * 0.1
+    time_cost = -torch.ones_like(potentials) * 0.01
 
     # optional: dof at limit
-    total_reward = progress_reward + time_cost + reached_goal_reward
+    total_reward = progress_reward + time_cost + reached_goal_reward + dist_reward
     # print(f'net reward: {total_reward[0]}')
 
     reset = torch.where(reached_target == 1,
                         torch.ones_like(reset_buf), reset_buf)
     reset = torch.where(progress_buf >= max_episode_length -
                         1, torch.ones_like(reset_buf), reset)
-    # reset = torch.where(total_reward <= -500,
-    #                     torch.ones_like(reset_buf), reset)
 
     return total_reward, reset
 
@@ -541,12 +509,9 @@ def compute_summit_reward(obs_buf, progress_buf, reset_buf, max_episode_length, 
 # refactor code to here if need expensive computations
 def compute_summit_observations(potentials, prev_potentials, num_envs, max_num_boxes, dt,
                                 goal_pos, goal_radius, map_coords, summit_pos_tensor,
-                                summit_vel_tensor, summit_rot_tensor, box_state_tensor):
-    # type: (Tensor, Tensor, int, int, float, Tensor, float, Tensor, Tensor, Tensor, Tensor, Tensor,) -> Tuple[Tensor, Tensor]
+                                summit_vel_tensor, summit_rot_tensor, summit_ang_vel_tensor, box_state_tensor, dist_to_target):
+    # type: (Tensor, Tensor, int, int, float, Tensor, float, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor) -> Tuple[Tensor, Tensor, Tensor, Tensor]
     # update internal states
-    dist_to_target = goal_pos - summit_pos_tensor
-    dist_to_target[:, 2] = 0.0
-    dist_to_target = torch.norm(dist_to_target, p=2, dim=-1)
 
     prev_potentials = potentials.clone()
     potentials = -dist_to_target / dt
@@ -560,9 +525,10 @@ def compute_summit_observations(potentials, prev_potentials, num_envs, max_num_b
     summit_vel = summit_vel_tensor[:, 0:2]
     summit_rot_roll, summit_rot_pitch, summit_rot_yaw = get_euler_xyz(
         summit_rot_tensor)
+    summit_ang_vel = summit_ang_vel_tensor[:, 0:3]
 
     # wall bounds
-    wall_bounds = map_coords
+    # wall_bounds = map_coords
 
     # box keypoints
     boxes_keypoints_buf = torch.ones(
@@ -575,7 +541,8 @@ def compute_summit_observations(potentials, prev_potentials, num_envs, max_num_b
 
     obs_buf = torch.cat(
         (goal_pos, summit_pos, summit_vel, summit_rot_roll.unsqueeze(-1),
-         summit_rot_pitch.unsqueeze(-1), summit_rot_yaw.unsqueeze(-1),
-         wall_bounds, boxes_keypoints), dim=-1)
+         summit_rot_pitch.unsqueeze(
+             -1), summit_rot_yaw.unsqueeze(-1), summit_ang_vel,
+         boxes_keypoints), dim=-1)
 
-    return obs_buf, reached_target
+    return obs_buf, reached_target, potentials, prev_potentials
