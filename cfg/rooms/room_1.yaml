@@ -33,22 +33,22 @@ wall_cfg:
       orientation: vertical
     - name: wall_2
       pos_x: 0
-      pos_y: -1.5
-      length: 7
+      pos_y: -2.5
+      length: 5
       orientation: vertical
     - name: wall_3
       pos_x: 1.5
-      pos_y: 2
+      pos_y: 0
       length: 3
       orientation: horizontal
     - name: wall_4
       pos_x: 8.5
-      pos_y: 2
+      pos_y: 0
       length: 3
       orientation: horizontal
 goal_cfg:
   goal_x: 5
-  goal_y: -2.5
+  goal_y: -1.5
   goal_radius: 0.5
 box_cfg:
   useDefaultBoxes: True
@@ -56,5 +56,3 @@ box_cfg:
   boxes:
     - pos_x: -7.5
       pos_y: -1.0
-    - pos_x: 5.0
-      pos_y: 2.0
