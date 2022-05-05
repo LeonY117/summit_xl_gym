@@ -1,3 +1,2 @@
-runs/Summit/summaries/
-runs/Summit/nn
-tasks/
+runs/
+tasks/pycache
