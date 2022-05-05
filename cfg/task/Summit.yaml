@@ -8,13 +8,13 @@ env:
   #  numEnvs: ${...num_envs}
   numEnvs: ${resolve_default:4096,${...num_envs}}
   envSpacing: 12
-  episodeLength: 1000
+  episodeLength: 100
   enableDebugVis: True
 
   clipActions: 1.0
 
   powerScale: 1.0
-  controlFrequencyInv: 1 # 60 Hz
+  controlFrequencyInv: 60 # 60 Hz
 
   # reward & cost parameters
 
@@ -25,17 +25,17 @@ env:
 
   asset:
     assetFileName: "summit_xl_description/robots/summit_xls_std_fixed_camera.urdf"
-  
+
   # room configs
-  useBoxes: False
+  useBoxes: True
   useDefaultBoxPos: False
-  
 
   # set to True if you use camera sensors in the environment
   enableCameraSensors: False
 
 sim:
   dt: 0.0166 # 1/60 s
+  # dt: 0.1
   substeps: 1
   up_axis: "z"
   use_gpu_pipeline: ${eq:${...pipeline},"gpu"}
@@ -53,7 +53,7 @@ sim:
     default_buffer_size_multiplier: 5.0
     max_gpu_contact_pairs: 8388608 # 8*1024*1024
     num_subscenes: ${....num_subscenes}
-    contact_collection: 0 # 0: CC_NEVER (don't collect contact info), 1: CC_LAST_SUBSTEP (collect only contacts on last substep), 2: CC_ALL_SUBSTEPS (default - all contacts)
+    contact_collection: 2 # 0: CC_NEVER (don't collect contact info), 1: CC_LAST_SUBSTEP (collect only contacts on last substep), 2: CC_ALL_SUBSTEPS (default - all contacts)
 
 task:
   randomize: False
