@@ -13,10 +13,16 @@ env:
 
   clipActions: 1.0
 
-  powerScale: 1.0
+  powerScale: 4.0
   controlFrequencyInv: 60 # 60 Hz
 
   # reward & cost parameters
+  progress_weight: 0.1
+  dist_weight: 0.1
+  reached_goal_weight: 100
+
+  time_weight: 0.01
+  
 
   plane:
     staticFriction: 1.0
@@ -26,9 +32,32 @@ env:
   asset:
     assetFileName: "summit_xl_description/robots/summit_xls_std_fixed_camera.urdf"
 
-  # room configs
+  room_config: "cfg/rooms/room_1.yaml"
+
+  # boxes starting pos and rot
   useBoxes: True
-  useDefaultBoxPos: False
+  randomize_box:
+    randomize_pos: True
+    x_bound: [-1, 1]
+    y_bound: [-1, 1]
+    randomize_rot: True
+  
+  # summit starting pos and rot
+  randomize_summit: 
+    randomize_pos: True
+    x_bound: [-1, -0.5]
+    y_bound: [-1, 0]
+    whole_map_start_prob: 0.01
+    randomize_rot: True
+  
+  # box mass and friction
+  randomize_box_properties: True
+  randomize_summit_properties: False
+  randomize_properties:
+    box_mass: [0.5, 10]
+    box_friction: [0.05, 0.5]
+    box_width: [0.8, 1.5]
+  
 
   # set to True if you use camera sensors in the environment
   enableCameraSensors: False
