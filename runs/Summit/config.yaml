@@ -4,18 +4,18 @@ task:
   env:
     numEnvs: ${resolve_default:4096,${...num_envs}}
     envSpacing: 12
-    episodeLength: 5000
+    episodeLength: 100
     enableDebugVis: true
     clipActions: 1.0
     powerScale: 1.0
-    controlFrequencyInv: 1
+    controlFrequencyInv: 60
     plane:
       staticFriction: 1.0
       dynamicFriction: 1.0
       restitution: 0.0
     asset:
       assetFileName: summit_xl_description/robots/summit_xls_std_fixed_camera.urdf
-    useBoxes: false
+    useBoxes: true
     useDefaultBoxPos: false
     enableCameraSensors: false
   sim:
@@ -40,7 +40,7 @@ task:
       default_buffer_size_multiplier: 5.0
       max_gpu_contact_pairs: 8388608
       num_subscenes: ${....num_subscenes}
-      contact_collection: 0
+      contact_collection: 2
   task:
     randomize: false
     randomization_params:
@@ -80,8 +80,9 @@ train:
       mlp:
         units:
         - 256
+        - 256
         - 128
-        - 64
+        - 128
         activation: elu
         d2rl: false
         initializer:
@@ -111,9 +112,9 @@ train:
       schedule_type: legacy
       kl_threshold: 0.008
       score_to_win: 20000
-      max_epochs: ${resolve_default:10000,${....max_iterations}}
-      save_best_after: 10000
-      save_frequency: 50
+      max_epochs: ${resolve_default:100000,${....max_iterations}}
+      save_best_after: 1000
+      save_frequency: 100
       grad_norm: 1.0
       entropy_coef: 0.0
       truncate_grads: false
@@ -128,7 +129,7 @@ train:
 task_name: ${task.name}
 experiment: ''
 num_envs: ''
-seed: 42
+seed: 6626
 torch_deterministic: false
 max_iterations: ''
 physics_engine: physx
