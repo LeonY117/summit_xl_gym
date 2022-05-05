@@ -1,0 +1,48 @@
+room_name: L_shaped_room
+room_width: 15
+room_height: 15
+
+wall_cfg:
+  wall_height: 2.0
+  wall_thickness: 0.1
+  walls:
+    - name: left_bound
+      pos_x: 0
+      pos_y: -7.5
+      length: 15
+      orientation: vertical
+    - name: left_bound_2
+      pos_x: 5
+      pos_y: -10
+      length: 10
+      orientation: vertical
+    - name: top_bound
+      pos_x: 7.5
+      pos_y: 0
+      length: 15
+      orientation: horizontal
+    - name: top_bound_2
+      pos_x: 5
+      pos_y: -5
+      length: 10
+      orientation: horizontal
+    - name: right_end_wall
+      pos_x: 15
+      pos_y: -2.5
+      length: 5
+      orientation: vertical
+    - name: bottom_end_wall
+      pos_x: 2.5
+      pos_y: -15
+      length: 5
+      orientation: horizontal
+goal_cfg:
+  goal_x: 8
+  goal_y: -2.5
+  goal_radius: 0.5
+box_cfg:
+  useDefaultBoxes: True
+  box_width: 1
+  boxes:
+    - pos_x: 2.5
+      pos_y: -5
