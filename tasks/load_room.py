@@ -32,9 +32,9 @@ sim_params.up_axis = gymapi.UP_AXIS_Z
 sim_params.gravity = gymapi.Vec3(0.0, 0.0, -9.8)
 
 if args.physics_engine == gymapi.SIM_FLEX:
-    sim_params.flex.relaxation = 0.9
-    sim_params.flex.dynamic_friction = 0.0
-    sim_params.flex.static_friction = 0.0
+    sim_params.flex.relaxation = 0
+    sim_params.flex.dynamic_friction = 1.0
+    sim_params.flex.static_friction = 1.0
 elif args.physics_engine == gymapi.SIM_PHYSX:
     sim_params.physx.solver_type = 1
     sim_params.physx.num_position_iterations = 4
@@ -61,8 +61,8 @@ if viewer is None:
 # add ground plane
 plane_params = gymapi.PlaneParams()
 plane_params.normal = gymapi.Vec3(0.0, 0.0, 1.0)
-plane_params.static_friction = 0.1
-plane_params.dynamic_friction = 0.1
+plane_params.static_friction = 1.0
+plane_params.dynamic_friction = 1.0
 plane_params.restitution = 0.
 gym.add_ground(sim, plane_params)
 
@@ -128,8 +128,8 @@ gym_assets['walls'] = wall_assets
 
 
 # set up the env grid
-num_envs = 16
-num_per_row = 4
+num_envs = 4
+num_per_row = 2
 spacing = 12
 env_lower = gymapi.Vec3(-spacing, 0.0, -spacing)
 env_upper = gymapi.Vec3(spacing, spacing, spacing)
@@ -155,27 +155,33 @@ for i in range(num_envs):
     initial_pose = gymapi.Transform()
     initial_pose.p = gymapi.Vec3(-7.5, 2.5, 0.)
     initial_quat = gymapi.Quat(0., 0., -1., 1.)
-    # initial_pose.r = initial_quat
+    initial_pose.r = initial_quat
     # ROTATE summit about z-axis
     test_quat = gymapi.Quat.from_axis_angle(gymapi.Vec3(0., 0., 1.), 3.14/4)
     print(test_quat)
     combined_quat = initial_quat * test_quat
     print(combined_quat)
-    initial_pose.r = combined_quat
+    # initial_pose.r = combined_quat
 
     actor_handle = gym.create_actor(
         env, gym_assets['robot'], initial_pose, 'summit', i, 0)
+    actor_shape_props = gym.get_actor_rigid_shape_properties(env, actor_handle)
+    actor_shape_props[0].friction = 1.0
+    actor_shape_props[0].rolling_friction = 1.0
+    actor_shape_props[0].torsion_friction = 1.0
+    gym.set_actor_rigid_shape_properties(env, actor_handle, actor_shape_props)
+
     sensor = gym.get_actor_force_sensor(env, actor_handle, 0)
     sensors.append(sensor)
     actor_handles.append(actor_handle)
 
     box_handle = gym.create_actor(env, gym_assets['boxes'][0], gymapi.Transform(
-        p=gymapi.Vec3(-7.5, -1, box_width/2)), 'box', i, 0)
+        p=gymapi.Vec3(7.5, -1, box_width/2)), 'box', i, 0)
     box_handles.append(box_handle)
 
     box_shape_props = gym.get_actor_rigid_shape_properties(env, box_handle)
     # change properties
-    box_shape_props[0].compliance = 0.
+    box_shape_props[0].compliance = 0.5
     box_shape_props[0].friction = 0.1
     box_shape_props[0].rolling_friction = 0.
     box_shape_props[0].torsion_friction = 0.
@@ -214,11 +220,11 @@ for i in range(num_envs):
     # back_left, back_right, front_left, front_right
     props["driveMode"].fill(gymapi.DOF_MODE_VEL)
 
-    props["stiffness"].fill(0.0)
-    props['damping'].fill(1000.0)
+    props["stiffness"].fill(1000.0)
+    props['damping'].fill(100000.0)
     gym.set_actor_dof_properties(env, actor_handle, props)
 
-    # Set DOF drive targets
+    # Set DOF drive targets∂
     front_left_wheel_handle0 = gym.find_actor_dof_handle(
         env, actor_handle, 'summit_xl_front_left_wheel_joint')
     front_right_wheel_handle0 = gym.find_actor_dof_handle(
@@ -230,10 +236,15 @@ for i in range(num_envs):
 
     # # Control DOF to make robot move forward
     velocity = 0
-    gym.set_dof_target_velocity(env, back_left_wheel_handle0, velocity)
-    gym.set_dof_target_velocity(env, back_right_wheel_handle0, velocity)
-    gym.set_dof_target_velocity(env, front_left_wheel_handle0, velocity)
-    gym.set_dof_target_velocity(env, front_right_wheel_handle0, velocity)
+    gym.set_dof_target_velocity(env, back_left_wheel_handle0, 4)
+    gym.set_dof_target_velocity(env, back_right_wheel_handle0, -4)
+    gym.set_dof_target_velocity(env, front_left_wheel_handle0, 4)
+    gym.set_dof_target_velocity(env, front_right_wheel_handle0, -4)
+
+    # gym.apply_actor_dof_efforts(env, back_left_wheel_handle0, 10.)
+    # gym.apply_actor_dof_efforts(env, back_right_wheel_handle0, -10.)
+    # gym.apply_actor_dof_efforts(env, front_left_wheel_handle0, 0.)
+    # gym.apply_actor_dof_efforts(env, front_right_wheel_handle0, 0.)
 
 # Handles are just indices (but useful when there are multiple envs)
 print(f'env handles: {envs}')
@@ -278,6 +289,8 @@ summit_pos_x, summit_pos_y = [], []
 summit_vel, summit_wheel_vel = [], []
 sensor_forces, sensor_torques = [], []
 
+wheel1, wheel2, wheel3, wheel4 = [], [], [], []
+
 # check the effect of box weight and environment friction
 while not gym.query_viewer_has_closed(viewer):
 
@@ -293,6 +306,10 @@ while not gym.query_viewer_has_closed(viewer):
         summit_pos_y.append(summit_pos_tensor[1].item())
         summit_vel.append(vel_y.abs().item())
         summit_wheel_vel.append(torch.mean(dof_vel_tensor[0]).item())
+        wheel1.append(dof_vel_tensor[0].item())
+        wheel2.append(dof_vel_tensor[1].item())
+        wheel3.append(dof_vel_tensor[2].item())
+        wheel4.append(dof_vel_tensor[3].item())
 
         sensor_data = summit_front_sensor_tensor
         sensor_forces.append(sensor_data.tolist())
@@ -308,8 +325,8 @@ while not gym.query_viewer_has_closed(viewer):
     gym.step_graphics(sim)
     gym.draw_viewer(viewer, sim, True)
 
-    if t == 6000:
-        break
+    # if t == 6000:
+    #     break
     t += 1
 
 print('Simulation Done')
@@ -318,8 +335,28 @@ gym.destroy_viewer(viewer)
 gym.destroy_sim(sim)
 
 # plot position of summit to check that coord is correct
-plt.plot(summit_pos_x, summit_pos_y)
+# plt.plot(summit_pos_x, summit_pos_y)
 # plt.show()
+
+# plot rot vel for every wheeel
+
+plt.subplot(2, 2, 1)
+plt.title('front left')
+plt.plot(wheel1)
+
+plt.subplot(2, 2, 2)
+plt.title('front right')
+plt.plot(wheel2)
+
+plt.subplot(2, 2, 3)
+plt.title('back left')
+plt.plot(wheel3)
+
+plt.subplot(2, 2, 4)
+plt.title('back right')
+plt.plot(wheel4)
+
+plt.show()
 
 quit()
 
