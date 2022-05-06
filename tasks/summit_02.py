@@ -1,5 +1,7 @@
 # version 2 of summit xl steel class
-# add support for updated config files with randomization parameters
+# add support for updated config files with randomization parameters, and
+# reward and cost coefficients
+# add support for supporting dynamic width of the boxes
 
 from typing import Tuple
 from isaacgym import gymtorch
@@ -35,7 +37,7 @@ class Summit(VecTask):
         # load room configuration (in future we can merge this with global config)
         room_cfg_root = os.path.join(os.path.dirname(
             os.path.abspath(__file__)), "../cfg/rooms")
-        room_cfg_file = 'room_1.yaml'
+        room_cfg_file = self.cfg['env']['room_config']
         with open(f'{room_cfg_root}/{room_cfg_file}', 'r') as f:
             self.room_config = yaml.load(f, Loader=yaml.loader.SafeLoader)
 
@@ -53,6 +55,8 @@ class Summit(VecTask):
         self.cfg["env"]["numObservations"] = 12 + 24 * self.max_num_boxes  # 65
         self.cfg["env"]["numActions"] = 2
 
+        # Load variables from main config file:
+
         # to be configured later, randomize is set to false for now
         self.randomization_params = self.cfg["task"]["randomization_params"]
         self.randomize = self.cfg["task"]["randomize"]
@@ -60,8 +64,35 @@ class Summit(VecTask):
         self.power_scale = self.cfg["env"]["powerScale"]
 
         # reward parameters
+        self.progress_weight = self.cfg['env']['progressWeight']
+        self.dist_weight = self.cfg['env']['distWeight']
+        self.reached_goal_weight = self.cfg['env']['reachedGoalWeight']
 
         # cost parameters
+        self.time_weight = self.cfg['env']['timeWeight']
+
+        # initial pos and rot, and randomization parameters
+        self.randomize_box_pos = self.cfg['env']['randomize_box']['randomize_pos']
+        self.randomize_box_rot = self.cfg['env']['randomize_box']['randomize_rot']
+        self.randomize_summit_pos = self.cfg['env']['randomize_summit']['randomize_pos']
+        self.randomize_summit_rot = self.cfg['env']['randomize_summit']['randomize_rot']
+        self.randomize_box_properties = self.cfg['env']['randomize_box_properties']
+        self.randomize_summit_properties = self.cfg['env']['randomize_summit_properties']
+
+        if self.randomize_box_pos:
+            # since boxes are placed down before summit, we can't fix summit pos if boxes are random
+            self.randomize_summit_pos = True
+        if self.randomize_box_pos:
+            self.box_x_bound = self.cfg['env']['randomize_box']['x_bound']
+            self.box_y_bound = self.cfg['env']['randomize_box']['y_bound']
+        if self.randomize_summit_pos:
+            self.summit_x_bound = self.cfg['env']['randomize_summit']['x_bound']
+            self.summit_y_bound = self.cfg['env']['randomize_summit']['y_bound']
+            self.summit_whole_map_start_prob = self.cfg['env']['randomize_summit']['whole_map_start_prob']
+        if self.randomize_box_properties:
+            self.random_box_mass = self.cfg['env']['randomize_properties']['box_mass']
+            self.random_box_friction = self.cfg['env']['randomize_properties']['box_friction']
+            self.random_box_width = self.cfg['env']['randomize_properties']['box_width']
 
         self.debug_viz = self.cfg["env"]["enableDebugVis"]
 
@@ -105,8 +136,15 @@ class Summit(VecTask):
         self.dof_vel = self.dof_state_tensor.view(
             self.num_envs, self.summit_num_dofs, 2)[..., 1]
 
-        # TODO: update this with dynamic initial states
+        # This is the initial state of summit & boxes
         self.initial_root_states = self.actor_root_state_tensor.clone()
+        self.initial_summit_pos = self.initial_root_states[:, 0, 0:3]
+        self.initial_summit_rot = self.initial_root_states[:, 0, 3:7]
+        if self.max_num_boxes > 0:
+            self.initial_boxes_pos = self.initial_root_states[:,
+                                                              1+self.num_walls:, 0:3]
+            self.initial_boxes_rot = self.initial_root_states[:,
+                                                              1+self.num_walls:, 3:7]
 
         self.initial_dof_pos = torch.zeros_like(
             self.dof_pos, device=self.device, dtype=torch.float)
@@ -184,8 +222,11 @@ class Summit(VecTask):
             [goal_pos], device=self.device, dtype=torch.float).repeat((self.num_envs, 1))
         self.goal_radius = to_torch(
             self.room_config['goal_cfg']['goal_radius'], device=self.device, dtype=torch.float)
+        self.summit_default_initial_pos = [
+            self.room_config['summit_cfg']['pos_x'], self.room_config['summit_cfg']['pos_y']]
         self.room_width, self.room_height = self.room_config[
             'room_width'], self.room_config['room_height']
+        self.max_dist = (self.room_width ** 2 + self.room_height ** 2) ** 0.5
         # global for now, dynamic would improve start state distribution
 
         # Create lists to keep track of all the assets
@@ -271,7 +312,8 @@ class Summit(VecTask):
             self.summit_initial_quat = gymapi.Quat(
                 0., 0., -1., 1.)  # rotates summit
             initial_pose = gymapi.Transform()
-            initial_pose.p = gymapi.Vec3(-7.5, 2.5, 0.)
+            initial_pose.p = gymapi.Vec3(
+                self.summit_default_initial_pos[0], self.summit_default_initial_pos[1], 0.)
             initial_pose.r = self.summit_initial_quat
 
             actor_handle = self.gym.create_actor(
@@ -347,59 +389,54 @@ class Summit(VecTask):
         box_indices = self.global_indices[env_ids,
                                           1 + self.num_walls:].flatten()
         # reset summit and box positions
-        if self.max_num_boxes:
-            reset_box_pos = torch.ones_like(self.boxes_pos_tensor)
         for env_idx in env_ids_int32:
-            # RESET BOXES POSITIONS
             box_idx = 0
             box_poses = [[-100, -100]] * self.max_num_boxes
             while box_idx < self.max_num_boxes:
-                reposition = False
-                pos = [random.uniform(-0.5, 1) * (self.room_width/2 - self.object_radius),
-                       random.uniform(-1, 1) * (self.room_height/2 - self.object_radius)]
-                for bound in self.map_bounds:
-                    if collides(pos, bound):
-                        reposition = True
-                        break
-                for pos2 in box_poses:
-                    if dist(pos, pos2) <= self.object_radius * 2:
-                        reposition = True
-                        break
-                if reposition:
-                    continue
-                box_poses[box_idx] = pos
-                reset_box_pos[env_idx][box_idx][0:3] = to_torch(
-                    [pos[0], pos[1], self.box_width/2], dtype=torch.float, device=self.device)
-                random_theta = np.pi/2 * random.uniform(-1, 1)  # +- 180 deg
-                q = gymapi.Quat.from_axis_angle(gymapi.Vec3(
-                    0., 0., 1.), random_theta)
-                self.boxes_rot_tensor[env_idx][box_idx][0:4] = to_torch(
-                    [q.x, q.y, q.z, q.w], dtype=torch.float, device=self.device)
+                if self.randomize_box_pos:
+                    pos = [random.uniform(self.box_x_bound[0], self.box_x_bound[1]) * (self.room_width/2 - self.object_radius),
+                           random.uniform(self.box_y_bound[0], self.box_y_bound[1]) * (self.room_height/2 - self.object_radius)]
+                    if not is_valid_pos(pos, self.map_bounds, box_poses, self.object_radius * 2):
+                        continue
+                    box_poses[box_idx] = pos
+                    self.boxes_pos_tensor[env_idx][box_idx][:] = to_torch(
+                        [pos[0], pos[1], self.box_width/2], dtype=torch.float, device=self.device)
+                elif not self.randomize_box_pos:
+                    pos = self.initial_boxes_pos[0, box_idx, 0:2]
+                    box_poses[box_idx] = pos
+                    self.boxes_pos_tensor[env_idx][box_idx][:] = to_torch(
+                        [pos[0], pos[1], self.box_width/2], dtype=torch.float, device=self.device)
+                if self.randomize_box_rot:
+                    random_theta = np.pi/2 * \
+                        random.uniform(-1, 1)  # +- 180 deg
+                    q = gymapi.Quat.from_axis_angle(gymapi.Vec3(
+                        0., 0., 1.), random_theta)
+                    self.boxes_rot_tensor[env_idx][box_idx][:] = to_torch(
+                        [q.x, q.y, q.z, q.w], dtype=torch.float, device=self.device)
+                elif not self.randomize_box_rot:
+                    self.boxes_rot_tensor[env_idx][box_idx][:
+                                                            ] = self.initial_boxes_rot[0, box_idx, :]
                 box_idx += 1
             # RESET SUMMIT
             invalid_summit_pos = True
             while invalid_summit_pos:
-                if random.uniform(0, 1) < 0.99:
-                    pos = [random.uniform(-1, -0.5) * (self.room_width/2 - self.object_radius),
-                           random.uniform(-1, 0) * (self.room_height/2 - self.object_radius)]
-                else:
-                    pos = [random.uniform(-1, 1) * (self.room_width/2 - self.object_radius),
-                           random.uniform(-1, 1) * (self.room_height/2 - self.object_radius)]
-                invalid_summit_pos = False
-                for bound in self.map_bounds:
-                    if collides(pos, bound):
-                        invalid_summit_pos = True
-                        break
-                for pos2 in box_poses:
-                    if dist(pos, pos2) <= self.object_radius * 2:
-                        invalid_summit_pos = True
-                        break
-                if invalid_summit_pos:
-                    continue
-                # found valid position
-                self.summit_pos_tensor[env_idx][0:3] = to_torch(
-                    [pos[0], pos[1], 0.01], dtype=torch.float, device=self.device)
-
+                if self.randomize_summit_pos:
+                    if random.uniform(0, 1) < self.summit_whole_map_start_prob:
+                        pos = [random.uniform(-1, 1) * (self.room_width/2 - self.object_radius),
+                               random.uniform(-1, 1) * (self.room_height/2 - self.object_radius)]
+                    else:
+                        pos = [random.uniform(self.summit_x_bound[0], self.summit_x_bound[1]) * (self.room_width/2 - self.object_radius),
+                               random.uniform(self.summit_y_bound[0], self.summit_y_bound[1]) * (self.room_height/2 - self.object_radius)]
+                    invalid_summit_pos = not is_valid_pos(pos, self.map_bounds,
+                                                          box_poses, self.object_radius * 2)
+                    if invalid_summit_pos:
+                        continue
+                    # found valid position
+                    self.summit_pos_tensor[env_idx][:] = to_torch(
+                        [pos[0], pos[1], 0.01], dtype=torch.float, device=self.device)
+                elif not self.randomize_summit_pos:
+                    self.summit_pos_tensor[env_idx][:] = self.initial_summit_pos[0, :]
+                    invalid_summit_pos = False
                 # set random rotation
                 random_theta = np.pi/2 * random.uniform(-1, 1)  # +- 180 deg
                 q = gymapi.Quat.from_axis_angle(gymapi.Vec3(
@@ -408,9 +445,7 @@ class Summit(VecTask):
                     [q.x, q.y, q.z, q.w], dtype=torch.float, device=self.device)
 
         # reset summit dof
-        summit_dof_position_noise = torch_rand_float(-0.2, 0.2,
-                                                     (len(env_ids), self.summit_num_dofs), device=self.device)
-        summit_dof_velocity_noise = torch_rand_float(-0.1, 0.1,
+        summit_dof_velocity_noise = torch_rand_float(-0, 0,
                                                      (len(env_ids), self.summit_num_dofs), device=self.device)
 
         self.dof_pos[env_ids] = self.initial_dof_pos[env_ids]
@@ -426,7 +461,6 @@ class Summit(VecTask):
                                                          self.actor_root_state_tensor),
                                                      gymtorch.unwrap_tensor(summit_indices), len(env_ids_int32))
         if self.max_num_boxes > 0:
-            self.boxes_pos_tensor[:] = reset_box_pos
             self.gym.set_actor_root_state_tensor_indexed(self.sim,
                                                          gymtorch.unwrap_tensor(
                                                              self.actor_root_state_tensor),
@@ -449,7 +483,7 @@ class Summit(VecTask):
         target_velocities[:, 0] = self.actions[:, 0]
         target_velocities[:, 1] = self.actions[:, 1]
         target_velocities[:, 2] = self.actions[:, 0]
-        target_velocities[:, 3] = self.actions[:, 1] 
+        target_velocities[:, 3] = self.actions[:, 1]
 
         # back_left, back_right, front_left, front_right
         target_velocities = target_velocities * 4
@@ -457,12 +491,6 @@ class Summit(VecTask):
         velocity_tensor = gymtorch.unwrap_tensor(target_velocities)
         self.gym.set_dof_velocity_target_tensor(
             self.sim, velocity_tensor)
-        # self.summit_vel_tensor[:, 0:2] = target_velocities
-        # summit_indices = self.global_indices[:, 0].flatten()
-        # self.gym.set_actor_root_state_tensor(self.sim,
-        #                                      gymtorch.unwrap_tensor(
-        #                                          self.actor_root_state_tensor),
-        #                                      )
 
     def post_physics_step(self):
         self.progress_buf += 1
