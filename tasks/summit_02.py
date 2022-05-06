@@ -214,9 +214,14 @@ class Summit(VecTask):
         # load data from self.room_config using helper function
         map_coords, goal_pos = load_room_from_config(
             self.room_config)
-        self.object_radius = 2**0.5
-        self.map_bounds = get_wall_bounds(2**0.5, map_coords)
-        self.map_coords = to_torch(
+        self.box_width = self.room_config['box_cfg']['box_width']
+        self.object_radius = (2 * self.box_width**2)**0.5
+        self.summit_radius = 2**0.5
+        # self.map_bounds = get_wall_bounds(2**0.5, map_coords)
+        self.summit_map_bounds = get_wall_bounds(
+            self.summit_radius, map_coords)
+        self.map_coords = map_coords
+        self.wall_coords = to_torch(
             map_coords, device=self.device, dtype=torch.float).flatten().repeat((self.num_envs, 1))
         self.goal_pos = to_torch(
             [goal_pos], device=self.device, dtype=torch.float).repeat((self.num_envs, 1))
@@ -261,7 +266,6 @@ class Summit(VecTask):
         # Load box asset
         if self.max_num_boxes > 0:
             box_assets = []
-            self.box_width = self.room_config['box_cfg']['box_width']
             box_density = 20.
             asset_options = gymapi.AssetOptions()
             asset_options.density = box_density
@@ -370,7 +374,7 @@ class Summit(VecTask):
 
     def compute_reward(self, actions):
         self.rew_buf[:], self.reset_buf[:] = compute_summit_reward(
-            self.obs_buf, self.progress_buf, self.reset_buf, self.max_episode_length, self.potentials, self.prev_potentials, self.dist_to_target, self.reached_target)
+            self.obs_buf, self.progress_buf, self.reset_buf, self.max_episode_length, self.potentials, self.prev_potentials, self.dist_to_target, self.reached_target, self.max_dist, self.progress_weight, self.dist_weight, self.reached_goal_weight, self.time_weight)
 
     def compute_observations(self):
         self.gym.refresh_dof_state_tensor(self.sim)
@@ -379,7 +383,7 @@ class Summit(VecTask):
 
         self.obs_buf[:], self.reached_target[:], self.potentials[:], self.prev_potentials[:] = compute_summit_observations(
             self.potentials, self.prev_potentials, self.num_envs, self.max_num_boxes, self.dt,
-            self.goal_pos, self.goal_radius, self.map_coords, self.summit_pos_tensor,
+            self.goal_pos, self.goal_radius, self.wall_coords, self.summit_pos_tensor,
             self.summit_vel_tensor, self.summit_rot_tensor, self.summit_ang_vel_tensor, self.box_state_tensor)
 
     def reset_idx(self, env_ids):
@@ -392,11 +396,29 @@ class Summit(VecTask):
         for env_idx in env_ids_int32:
             box_idx = 0
             box_poses = [[-100, -100]] * self.max_num_boxes
+            box_radii = [0] * self.max_num_boxes
             while box_idx < self.max_num_boxes:
+                if self.randomize_box_rot:
+                    theta = np.pi/2 * \
+                        random.uniform(-1, 1)  # +- 180 deg
+                    q = gymapi.Quat.from_axis_angle(gymapi.Vec3(
+                        0., 0., 1.), theta)
+                    self.boxes_rot_tensor[env_idx][box_idx][:] = to_torch(
+                        [q.x, q.y, q.z, q.w], dtype=torch.float, device=self.device)
+                elif not self.randomize_box_rot:
+                    self.boxes_rot_tensor[env_idx][box_idx][:
+                                                            ] = self.initial_boxes_rot[0, box_idx, :]
+                    theta = 0
+                # caculate minimum bounding box from box width and rotation:
+                box_max_width = max(
+                    abs(self.box_width * np.cos(theta)), abs(self.box_width * np.sin(theta)))
+                # assume bounding box to be square to avoid complications
+                box_radius = (2 * box_max_width ** 2) ** 0.5
+                map_bound = get_wall_bounds(box_radius, self.map_coords)
                 if self.randomize_box_pos:
-                    pos = [random.uniform(self.box_x_bound[0], self.box_x_bound[1]) * (self.room_width/2 - self.object_radius),
-                           random.uniform(self.box_y_bound[0], self.box_y_bound[1]) * (self.room_height/2 - self.object_radius)]
-                    if not is_valid_pos(pos, self.map_bounds, box_poses, self.object_radius * 2):
+                    pos = [random.uniform(self.box_x_bound[0], self.box_x_bound[1]) * (self.room_width/2 - box_radius),
+                           random.uniform(self.box_y_bound[0], self.box_y_bound[1]) * (self.room_height/2 - box_radius)]
+                    if not is_valid_pos(pos, map_bound, box_poses, box_radius * 2):
                         continue
                     box_poses[box_idx] = pos
                     self.boxes_pos_tensor[env_idx][box_idx][:] = to_torch(
@@ -406,32 +428,23 @@ class Summit(VecTask):
                     box_poses[box_idx] = pos
                     self.boxes_pos_tensor[env_idx][box_idx][:] = to_torch(
                         [pos[0], pos[1], self.box_width/2], dtype=torch.float, device=self.device)
-                if self.randomize_box_rot:
-                    random_theta = np.pi/2 * \
-                        random.uniform(-1, 1)  # +- 180 deg
-                    q = gymapi.Quat.from_axis_angle(gymapi.Vec3(
-                        0., 0., 1.), random_theta)
-                    self.boxes_rot_tensor[env_idx][box_idx][:] = to_torch(
-                        [q.x, q.y, q.z, q.w], dtype=torch.float, device=self.device)
-                elif not self.randomize_box_rot:
-                    self.boxes_rot_tensor[env_idx][box_idx][:
-                                                            ] = self.initial_boxes_rot[0, box_idx, :]
+                box_radii[box_idx] = box_radius
                 box_idx += 1
             # RESET SUMMIT
             invalid_summit_pos = True
             while invalid_summit_pos:
                 if self.randomize_summit_pos:
                     if random.uniform(0, 1) < self.summit_whole_map_start_prob:
-                        pos = [random.uniform(-1, 1) * (self.room_width/2 - self.object_radius),
-                               random.uniform(-1, 1) * (self.room_height/2 - self.object_radius)]
+                        pos = [random.uniform(-1, 1) * (self.room_width/2 - self.summit_radius),
+                               random.uniform(-1, 1) * (self.room_height/2 - self.summit_radius)]
                     else:
-                        pos = [random.uniform(self.summit_x_bound[0], self.summit_x_bound[1]) * (self.room_width/2 - self.object_radius),
-                               random.uniform(self.summit_y_bound[0], self.summit_y_bound[1]) * (self.room_height/2 - self.object_radius)]
-                    invalid_summit_pos = not is_valid_pos(pos, self.map_bounds,
-                                                          box_poses, self.object_radius * 2)
+                        pos = [random.uniform(self.summit_x_bound[0], self.summit_x_bound[1]) * (self.room_width/2 - self.summit_radius),
+                               random.uniform(self.summit_y_bound[0], self.summit_y_bound[1]) * (self.room_height/2 - self.summit_radius)]
+                    invalid_summit_pos = not is_valid_pos(pos, self.summit_map_bounds,
+                                                          box_poses, self.summit_radius + max(box_radii))
                     if invalid_summit_pos:
                         continue
-                    # found valid position
+                    # found valid position * 2
                     self.summit_pos_tensor[env_idx][:] = to_torch(
                         [pos[0], pos[1], 0.01], dtype=torch.float, device=self.device)
                 elif not self.randomize_summit_pos:
@@ -524,22 +537,21 @@ def gen_keypoints(pose: torch.Tensor, num_keypoints: int = 8, size: Tuple[float,
 
 
 @ torch.jit.script
-def compute_summit_reward(obs_buf, progress_buf, reset_buf, max_episode_length, potentials, prev_potentials, dist_to_target, reached_target):
-    # type: (Tensor, Tensor, Tensor, float, Tensor, Tensor, Tensor, Tensor) -> Tuple[Tensor, Tensor]
+def compute_summit_reward(obs_buf, progress_buf, reset_buf, max_episode_length, potentials, prev_potentials, dist_to_target, reached_target, max_dist, progress_weight, dist_weight, reached_goal_weight, time_weight):
+    # type: (Tensor, Tensor, Tensor, float, Tensor, Tensor, Tensor, Tensor, float, float, float, float, float) -> Tuple[Tensor, Tensor]
     # euclidian distance to goal
-    progress_reward = (potentials - prev_potentials) * 0.1
-    max_dist = 20
-    dist_reward = ((max_dist - dist_to_target) / max_dist) * 0.2
+    progress_reward = (potentials - prev_potentials) * progress_weight
+    dist_reward = ((max_dist - dist_to_target) / max_dist) * dist_weight
 
     # reached target reward
-    reached_goal_reward = reached_target * 100
+    reached_goal_reward = reached_target * reached_goal_weight
 
     # action cost
     # optional: additional penalty for pushing boxes
     # optional: additional penalty for pushing walls
 
     # penalty for every time step
-    time_cost = -torch.ones_like(potentials) * 0.01
+    time_cost = -torch.ones_like(potentials) * time_weight
 
     # optional: dof at limit
     total_reward = progress_reward + time_cost + reached_goal_reward + dist_reward
