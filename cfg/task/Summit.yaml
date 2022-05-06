@@ -14,7 +14,7 @@ env:
   clipActions: 1.0
 
   powerScale: 1.0
-  controlFrequencyInv: 60 # 60 Hz
+  controlFrequencyInv: 60 # 1 Hz
 
   # reward & cost parameters
 
