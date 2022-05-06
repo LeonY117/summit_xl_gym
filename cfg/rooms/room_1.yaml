@@ -54,7 +54,7 @@ box_cfg:
   box_width: 1
   boxes:
     - pos_x: -7.5
-      pos_y: -1.0
+      pos_y: -2
 summit_cfg:
   pos_x: -7.5
   pos_y: 2.5
