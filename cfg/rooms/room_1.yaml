@@ -51,8 +51,10 @@ goal_cfg:
   goal_y: -1.5
   goal_radius: 0.5
 box_cfg:
-  useDefaultBoxes: True
   box_width: 1
   boxes:
     - pos_x: -7.5
       pos_y: -1.0
+summit_cfg:
+  pos_x: -7.5
+  pos_y: 2.5
