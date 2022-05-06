@@ -83,6 +83,16 @@ def get_wall_bounds(radius, wall_coords):
     return bounds
 
 
+def is_valid_pos(pos, bounds, other_object_pos, r):
+    for bound in bounds:
+        if collides(pos, bound):
+            return False
+    for pos2 in other_object_pos:
+        if dist(pos, pos2) <= r:
+            return False
+    return True
+
+
 def collides(point, bound):
     '''
     Takes a 2D coordinate and bound and returns if the coordinate is within the bound
