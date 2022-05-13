@@ -104,6 +104,8 @@ class Summit(VecTask):
         super().__init__(config=self.cfg, sim_device=sim_device,
                          graphics_device_id=graphics_device_id, headless=headless)
 
+        self.actionOptions = torch.tensor([[1, 1, 1, 1], [-1, -1, -1, -1],
+                                           [1, -1, 1, -1], [-1, 1, -1, 1]], dtype=torch.float, device=self.device).repeat((self.num_envs, 1)).view(self.num_envs, 4, 4)
         # set camera angle
         if self.viewer != None:
             cam_pos = gymapi.Vec3(50.0, 25.0, 2.4)
@@ -291,8 +293,8 @@ class Summit(VecTask):
 
         # Set summit dof properties
         summit_dof_props = self.gym.get_asset_dof_properties(summit_asset)
-        summit_dof_props['stiffness'].fill(0.0)
-        summit_dof_props['damping'].fill(1000.0)
+        summit_dof_props['stiffness'].fill(800.0)
+        summit_dof_props['damping'].fill(300.0)
         for i in range(self.summit_num_dofs):
             summit_dof_props['driveMode'][i] = gymapi.DOF_MODE_VEL
             # TODO: apply upper and lower limit here
@@ -324,6 +326,15 @@ class Summit(VecTask):
                 env, self.gym_assets['robot'], initial_pose, 'summit', i, 0)
             self.gym.set_actor_dof_properties(
                 env, actor_handle, summit_dof_props)
+
+            actor_shape_props = self.gym.get_actor_rigid_shape_properties(env, actor_handle)
+            for actor_shape_prop in actor_shape_props:
+                actor_shape_prop.friction = 0.01
+                actor_shape_prop.rolling_friction = 0.001
+                actor_shape_prop.torsion_friction = 0.001
+                # actor_shape_prop.compliance = 0
+            self.gym.set_actor_rigid_shape_properties(env, actor_handle, actor_shape_props)
+
             self.actor_handles.append(actor_handle)
 
             # add wall actor
@@ -387,11 +398,11 @@ class Summit(VecTask):
             self.summit_vel_tensor, self.summit_rot_tensor, self.summit_ang_vel_tensor, self.box_state_tensor)
 
     def reset_idx(self, env_ids):
-
         env_ids_int32 = env_ids.to(dtype=torch.int32)
         summit_indices = self.global_indices[env_ids, 0].flatten()
         box_indices = self.global_indices[env_ids,
                                           1 + self.num_walls:].flatten()
+
         # reset summit and box positions
         for env_idx in env_ids_int32:
             box_idx = 0
@@ -477,7 +488,7 @@ class Summit(VecTask):
             self.gym.set_actor_root_state_tensor_indexed(self.sim,
                                                          gymtorch.unwrap_tensor(
                                                              self.actor_root_state_tensor),
-                                                         gymtorch.unwrap_tensor(box_indices), len(env_ids_int32))
+                                                         gymtorch.unwrap_tensor(box_indices), len(env_ids_int32)*self.max_num_boxes)
 
         # reset other internal variables
         self.prev_potentials[env_ids] = - \
@@ -500,7 +511,19 @@ class Summit(VecTask):
 
         # back_left, back_right, front_left, front_right
         target_velocities = target_velocities * 4
-        # print(torch.mean(target_velocities, dim=0))
+        # print(torch.mean(target_velocities, dim=0))'
+
+        # # DISCRETE ACTION SPACE: FORWARD, BACKWARD, ROT CW, ROT CCW
+        # # softmax layer
+        # prob = torch.softmax(self.actions, 0)
+        # indices = torch.max(
+        #     prob, -1).indices.unsqueeze(-1).repeat(1, 4).unsqueeze(1)
+        # # indices = torch.multinomial(prob, 1, False).repeat(1, 4).unsqueeze(1)
+        # # print(self.actionOptions.shape)
+        # target_velocities = torch.gather(self.actionOptions, 1, indices)
+        # # print(target_velocities.shape)
+        # target_velocities *= self.power_scale
+
         velocity_tensor = gymtorch.unwrap_tensor(target_velocities)
         self.gym.set_dof_velocity_target_tensor(
             self.sim, velocity_tensor)
