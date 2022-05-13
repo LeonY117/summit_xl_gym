@@ -166,9 +166,11 @@ for i in range(num_envs):
     actor_handle = gym.create_actor(
         env, gym_assets['robot'], initial_pose, 'summit', i, 0)
     actor_shape_props = gym.get_actor_rigid_shape_properties(env, actor_handle)
-    actor_shape_props[0].friction = 1.0
-    actor_shape_props[0].rolling_friction = 1.0
-    actor_shape_props[0].torsion_friction = 1.0
+    for actor_shape_prop in actor_shape_props:
+        actor_shape_prop.friction = 0.01
+        actor_shape_prop.rolling_friction = 0.001
+        actor_shape_prop.torsion_friction = 0.001
+        # actor_shape_prop.compliance = 0
     gym.set_actor_rigid_shape_properties(env, actor_handle, actor_shape_props)
 
     sensor = gym.get_actor_force_sensor(env, actor_handle, 0)
@@ -220,8 +222,8 @@ for i in range(num_envs):
     # back_left, back_right, front_left, front_right
     props["driveMode"].fill(gymapi.DOF_MODE_VEL)
 
-    props["stiffness"].fill(1000.0)
-    props['damping'].fill(100000.0)
+    props["stiffness"].fill(800.0)
+    props['damping'].fill(300.0)
     gym.set_actor_dof_properties(env, actor_handle, props)
 
     # Set DOF drive targets∂
@@ -235,11 +237,11 @@ for i in range(num_envs):
         env, actor_handle, 'summit_xl_back_right_wheel_joint')
 
     # # Control DOF to make robot move forward
-    velocity = 0
-    gym.set_dof_target_velocity(env, back_left_wheel_handle0, 4)
-    gym.set_dof_target_velocity(env, back_right_wheel_handle0, -4)
-    gym.set_dof_target_velocity(env, front_left_wheel_handle0, 4)
-    gym.set_dof_target_velocity(env, front_right_wheel_handle0, -4)
+    velocity = 2
+    gym.set_dof_target_velocity(env, back_left_wheel_handle0, velocity)
+    gym.set_dof_target_velocity(env, back_right_wheel_handle0, 0)
+    gym.set_dof_target_velocity(env, front_left_wheel_handle0, velocity)
+    gym.set_dof_target_velocity(env, front_right_wheel_handle0, 0)
 
     # gym.apply_actor_dof_efforts(env, back_left_wheel_handle0, 10.)
     # gym.apply_actor_dof_efforts(env, back_right_wheel_handle0, -10.)
@@ -317,6 +319,16 @@ while not gym.query_viewer_has_closed(viewer):
 
         # print([summit_pos_x[-1], summit_pos_y[-1]])
 
+    if t == 1000:
+        velocity = 4
+        gym.set_dof_target_velocity(envs[0], back_left_wheel_handle0, 0)
+        gym.set_dof_target_velocity(
+            envs[0], back_right_wheel_handle0, velocity)
+        gym.set_dof_target_velocity(
+            envs[0], front_left_wheel_handle0, 0)
+        gym.set_dof_target_velocity(
+            envs[0], front_right_wheel_handle0, velocity)
+
     # step the physics
     gym.simulate(sim)
     gym.fetch_results(sim, True)
@@ -325,8 +337,8 @@ while not gym.query_viewer_has_closed(viewer):
     gym.step_graphics(sim)
     gym.draw_viewer(viewer, sim, True)
 
-    # if t == 6000:
-    #     break
+    if t > 1500:
+        break
     t += 1
 
 print('Simulation Done')
