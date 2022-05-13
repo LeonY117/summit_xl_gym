@@ -1,5 +1,5 @@
 # used to create the object
-name: Summit
+name: Summit_02
 
 physics_engine: ${..physics_engine}
 
@@ -8,7 +8,7 @@ env:
   #  numEnvs: ${...num_envs}
   numEnvs: ${resolve_default:4096,${...num_envs}}
   envSpacing: 12
-  episodeLength: 100
+  episodeLength: 200
   enableDebugVis: True
 
   clipActions: 1.0
@@ -17,12 +17,11 @@ env:
   controlFrequencyInv: 60 # 60 Hz
 
   # reward & cost parameters
-  progress_weight: 0.1
-  dist_weight: 0.1
-  reached_goal_weight: 100
+  progressWeight: 0.1
+  distWeight: 0.1
+  reachedGoalWeight: 100
 
-  time_weight: 0.01
-  
+  timeWeight: 0.1
 
   plane:
     staticFriction: 1.0
@@ -32,24 +31,24 @@ env:
   asset:
     assetFileName: "summit_xl_description/robots/summit_xls_std_fixed_camera.urdf"
 
-  room_config: "cfg/rooms/room_1.yaml"
+  room_config: "room_2.yaml"
 
   # boxes starting pos and rot
   useBoxes: True
   randomize_box:
-    randomize_pos: True
-    x_bound: [-1, 1]
+    randomize_pos: False
+    x_bound: [-0.5, 1]
     y_bound: [-1, 1]
     randomize_rot: True
-  
+
   # summit starting pos and rot
-  randomize_summit: 
+  randomize_summit:
     randomize_pos: True
     x_bound: [-1, -0.5]
-    y_bound: [-1, 0]
-    whole_map_start_prob: 0.01
+    y_bound: [-1, 1]
+    whole_map_start_prob: 0.5
     randomize_rot: True
-  
+
   # box mass and friction
   randomize_box_properties: True
   randomize_summit_properties: False
@@ -57,7 +56,6 @@ env:
     box_mass: [0.5, 10]
     box_friction: [0.05, 0.5]
     box_width: [0.8, 1.5]
-  
 
   # set to True if you use camera sensors in the environment
   enableCameraSensors: False
