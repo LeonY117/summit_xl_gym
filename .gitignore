@@ -1,3 +1,4 @@
 runs/
 tasks/pycache
 scripts/test_tensor.py
+wandb/
