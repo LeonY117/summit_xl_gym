@@ -15,10 +15,10 @@ import torch
 import wandb
 
 from .base.vec_task import VecTask  # pre-defined abstract class
-from .helper_1 import *
+from .helper_5 import *
 
-wandb.init(project="box_pushing_task", config={
-           "room": "square_r0"}, entity="leonyao", mode="disabled")
+wandb.init(project="box_pushing_task2", config={
+           "room": "square_r1"}, entity="leonyao", mode="disabled")
 
 
 class Summit(VecTask):
