@@ -61,8 +61,8 @@ if viewer is None:
 # add ground plane
 plane_params = gymapi.PlaneParams()
 plane_params.normal = gymapi.Vec3(0.0, 0.0, 1.0)
-plane_params.static_friction = 1.0
-plane_params.dynamic_friction = 1.0
+plane_params.static_friction = 0.1
+plane_params.dynamic_friction = 0.1
 plane_params.restitution = 0.
 gym.add_ground(sim, plane_params)
 
@@ -126,6 +126,11 @@ for width in wall_widths:
     wall_assets[width] = asset_wall
 gym_assets['walls'] = wall_assets
 
+# goal asset
+goal_asset = []
+goal_asset_options = gymapi.AssetOptions()
+goal_asset_options.fix_base_link = True
+goal_asset.append(gym.create_box(sim, 2, 2, 0.01, wall_asset_options))
 
 # set up the env grid
 num_envs = 4
@@ -167,7 +172,7 @@ for i in range(num_envs):
         env, gym_assets['robot'], initial_pose, 'summit', i, 0)
     actor_shape_props = gym.get_actor_rigid_shape_properties(env, actor_handle)
     for actor_shape_prop in actor_shape_props:
-        actor_shape_prop.friction = 0.01
+        actor_shape_prop.friction = 0.005
         actor_shape_prop.rolling_friction = 0.001
         actor_shape_prop.torsion_friction = 0.001
         # actor_shape_prop.compliance = 0
@@ -178,7 +183,7 @@ for i in range(num_envs):
     actor_handles.append(actor_handle)
 
     box_handle = gym.create_actor(env, gym_assets['boxes'][0], gymapi.Transform(
-        p=gymapi.Vec3(7.5, -1, box_width/2)), 'box', i, 0)
+        p=gymapi.Vec3(-7.5, -1, box_width/2)), 'box', i, 0)
     box_handles.append(box_handle)
 
     box_shape_props = gym.get_actor_rigid_shape_properties(env, box_handle)
@@ -209,12 +214,16 @@ for i in range(num_envs):
             pos.r = gymapi.Quat(1.0, -1.0, 0.0, 0.0)
 
         wall_handle = gym.create_actor(
-            env, gym_assets['walls'][wall_length], pos, wall_name, i, 0
+            env, gym_assets['walls'][wall_length], pos, wall_name, i, -1
         )
         wall_handles.append(wall_handle)
 
     # set default DOF positions
     # gym.set_actor_dof_states(env, actor_handle, dof_states, gymapi.STATE_ALL)
+
+    # Add goal (non interactable)
+    goal_handle = gym.create_actor(env, goal_asset[0], gymapi.Transform(
+        p=gymapi.Vec3(-7.5, -3, 0.005)), 'box', i+1, 0)
 
     # Configure DOF
     props = gym.get_actor_dof_properties(env, actor_handle)
@@ -239,9 +248,9 @@ for i in range(num_envs):
     # # Control DOF to make robot move forward
     velocity = 2
     gym.set_dof_target_velocity(env, back_left_wheel_handle0, velocity)
-    gym.set_dof_target_velocity(env, back_right_wheel_handle0, 0)
+    gym.set_dof_target_velocity(env, back_right_wheel_handle0, velocity)
     gym.set_dof_target_velocity(env, front_left_wheel_handle0, velocity)
-    gym.set_dof_target_velocity(env, front_right_wheel_handle0, 0)
+    gym.set_dof_target_velocity(env, front_right_wheel_handle0, velocity)
 
     # gym.apply_actor_dof_efforts(env, back_left_wheel_handle0, 10.)
     # gym.apply_actor_dof_efforts(env, back_right_wheel_handle0, -10.)
@@ -337,7 +346,7 @@ while not gym.query_viewer_has_closed(viewer):
     gym.step_graphics(sim)
     gym.draw_viewer(viewer, sim, True)
 
-    if t > 1500:
+    if t > 2000:
         break
     t += 1
 
