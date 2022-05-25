@@ -1,5 +1,5 @@
 # used to create the object
-name: Summit_03
+name: Summit_04
 
 physics_engine: ${..physics_engine}
 
@@ -7,7 +7,7 @@ physics_engine: ${..physics_engine}
 env:
   #  numEnvs: ${...num_envs}
   numEnvs: ${resolve_default:4096,${...num_envs}}
-  envSpacing: 12
+  envSpacing: 11
   episodeLength: 200
   enableDebugVis: True
 
@@ -20,9 +20,13 @@ env:
   controlFrequencyInv: 60 # 1 Hz
 
   # reward & cost parameters
-  progressWeight: 0.1
-  distWeight: 0.1
-  reachedGoalWeight: 10
+  progressWeight: 0
+  distWeight: 0
+  reachedGoalWeight: 0
+
+  boxProgressWeight: 0.1
+  boxDistWeight: 0.1
+  boxReachedGoalWeight: 10
 
   timeWeight: 0.1
   dofOffsetWeight: 0.05
@@ -35,7 +39,7 @@ env:
   asset:
     assetFileName: "summit_xl_description/robots/summit_xls_std_fixed_camera.urdf"
 
-  room_config: "room_2.yaml"
+  room_config: "square_room_0.yaml"
 
   # boxes starting pos and rot
   useBoxes: True
@@ -52,6 +56,12 @@ env:
     y_bound: [-1, 1]
     whole_map_start_prob: 0.5
     randomize_rot: True
+
+  # goal position
+  randomize_goal:
+    randomize_pos: True
+    x_bound: [-1, 1]
+    y_bound: [-1, 1]
 
   # box mass and friction
   randomize_box_properties: True
