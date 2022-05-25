@@ -1,22 +1,71 @@
 task:
-  name: Summit
+  name: Summit_04
   physics_engine: ${..physics_engine}
   env:
     numEnvs: ${resolve_default:4096,${...num_envs}}
-    envSpacing: 12
-    episodeLength: 100
+    envSpacing: 11
+    episodeLength: 500
     enableDebugVis: true
+    useHistory: true
+    numHistory: 5
     clipActions: 1.0
-    powerScale: 1.0
+    powerScale: 4.0
     controlFrequencyInv: 60
+    progressWeight: 0
+    distWeight: 0
+    reachedGoalWeight: 0
+    boxProgressWeight: 0.1
+    boxDistWeight: 0.1
+    boxReachedGoalWeight: 10
+    timeWeight: 0.1
+    dofOffsetWeight: 0.05
     plane:
-      staticFriction: 1.0
-      dynamicFriction: 1.0
+      staticFriction: 0.1
+      dynamicFriction: 0.1
       restitution: 0.0
     asset:
       assetFileName: summit_xl_description/robots/summit_xls_std_fixed_camera.urdf
+    room_config: square_room_0.yaml
     useBoxes: true
-    useDefaultBoxPos: false
+    randomize_box:
+      randomize_pos: false
+      x_bound:
+      - -0.5
+      - 1
+      y_bound:
+      - -1
+      - 1
+      randomize_rot: true
+    randomize_summit:
+      randomize_pos: true
+      x_bound:
+      - -1
+      - -0.5
+      y_bound:
+      - -1
+      - 1
+      whole_map_start_prob: 0.5
+      randomize_rot: true
+    randomize_goal:
+      randomize_pos: true
+      x_bound:
+      - -1
+      - 1
+      y_bound:
+      - -1
+      - 1
+    randomize_box_properties: true
+    randomize_summit_properties: false
+    randomize_properties:
+      box_mass:
+      - 0.5
+      - 10
+      box_friction:
+      - 0.05
+      - 0.5
+      box_width:
+      - 0.8
+      - 1.5
     enableCameraSensors: false
   sim:
     dt: 0.0166
@@ -113,8 +162,8 @@ train:
       kl_threshold: 0.008
       score_to_win: 20000
       max_epochs: ${resolve_default:100000,${....max_iterations}}
-      save_best_after: 1000
-      save_frequency: 100
+      save_best_after: 100
+      save_frequency: 500
       grad_norm: 1.0
       entropy_coef: 0.0
       truncate_grads: false
@@ -129,7 +178,7 @@ train:
 task_name: ${task.name}
 experiment: ''
 num_envs: ''
-seed: 6626
+seed: 3860
 torch_deterministic: false
 max_iterations: ''
 physics_engine: physx
@@ -140,7 +189,7 @@ graphics_device_id: 0
 num_threads: 4
 solver_type: 1
 num_subscenes: 4
-test: false
-checkpoint: ''
+test: true
+checkpoint: /home/leon/Documents/summit_xl_gym/runs/Summit/nn/Summit.pth
 multi_gpu: false
 headless: false

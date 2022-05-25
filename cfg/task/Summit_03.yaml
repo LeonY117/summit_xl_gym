@@ -25,6 +25,7 @@ env:
   reachedGoalWeight: 10
 
   timeWeight: 0.1
+  dofOffsetWeight: 0.05
 
   plane:
     staticFriction: 0.1
