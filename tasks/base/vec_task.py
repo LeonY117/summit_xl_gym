@@ -37,14 +37,14 @@ from isaacgym.gymutil import get_property_setter_map, get_property_getter_map, g
 
 import torch
 import numpy as np
-import operator, random
+import operator
+import random
 from copy import deepcopy
 
 import sys
 
 import abc
 from abc import ABC
-
 
 
 class Env(ABC):
@@ -67,7 +67,8 @@ class Env(ABC):
             if self.device_type.lower() == "cuda" or self.device_type.lower() == "gpu":
                 self.device = "cuda" + ":" + str(self.device_id)
             else:
-                print("GPU Pipeline can only be used with GPU simulation. Forcing CPU Pipeline.")
+                print(
+                    "GPU Pipeline can only be used with GPU simulation. Forcing CPU Pipeline.")
                 config["sim"]["use_gpu_pipeline"] = False
 
         self.rl_device = config.get("rl_device", "cuda:0")
@@ -82,22 +83,26 @@ class Env(ABC):
             self.graphics_device_id = -1
 
         self.num_environments = config["env"]["numEnvs"]
-        self.num_agents = config["env"].get("numAgents", 1)  # used for multi-agent environments
+        # used for multi-agent environments
+        self.num_agents = config["env"].get("numAgents", 1)
         self.num_observations = config["env"]["numObservations"]
         self.num_states = config["env"].get("numStates", 0)
         self.num_actions = config["env"]["numActions"]
 
         self.control_freq_inv = config["env"].get("controlFrequencyInv", 1)
 
-        self.obs_space = spaces.Box(np.ones(self.num_obs) * -np.Inf, np.ones(self.num_obs) * np.Inf)
-        self.state_space = spaces.Box(np.ones(self.num_states) * -np.Inf, np.ones(self.num_states) * np.Inf)
+        self.obs_space = spaces.Box(
+            np.ones(self.num_obs) * -np.Inf, np.ones(self.num_obs) * np.Inf)
+        self.state_space = spaces.Box(
+            np.ones(self.num_states) * -np.Inf, np.ones(self.num_states) * np.Inf)
 
-        self.act_space = spaces.Box(np.ones(self.num_actions) * -1., np.ones(self.num_actions) * 1.)
+        self.act_space = spaces.Box(
+            np.ones(self.num_actions) * -1., np.ones(self.num_actions) * 1.)
 
         self.clip_obs = config["env"].get("clipObservations", np.Inf)
         self.clip_actions = config["env"].get("clipActions", np.Inf)
 
-    @abc.abstractmethod 
+    @abc.abstractmethod
     def allocate_buffers(self):
         """Create torch buffers for observations, rewards, actions dones and any additional data."""
 
@@ -113,7 +118,7 @@ class Env(ABC):
         """
 
     @abc.abstractmethod
-    def reset(self)-> Dict[str, torch.Tensor]:
+    def reset(self) -> Dict[str, torch.Tensor]:
         """Reset the environment.
         Returns:
             Observation dictionary
@@ -165,7 +170,8 @@ class VecTask(Env):
         """
         super().__init__(config, sim_device, graphics_device_id, headless)
 
-        self.sim_params = self.__parse_sim_params(self.cfg["physics_engine"], self.cfg["sim"])
+        self.sim_params = self.__parse_sim_params(
+            self.cfg["physics_engine"], self.cfg["sim"])
         if self.cfg["physics_engine"] == "physx":
             self.physics_engine = gymapi.SIM_PHYSX
         elif self.cfg["physics_engine"] == "flex":
@@ -248,7 +254,7 @@ class VecTask(Env):
         self.reset_buf = torch.ones(
             self.num_envs, device=self.device, dtype=torch.long)
         self.timeout_buf = torch.zeros(
-             self.num_envs, device=self.device, dtype=torch.long)
+            self.num_envs, device=self.device, dtype=torch.long)
         self.progress_buf = torch.zeros(
             self.num_envs, device=self.device, dtype=torch.long)
         self.randomize_buf = torch.zeros(
@@ -266,7 +272,8 @@ class VecTask(Env):
         Returns:
             the Isaac Gym sim object.
         """
-        sim = self.gym.create_sim(compute_device, graphics_device, physics_engine, sim_params)
+        sim = self.gym.create_sim(
+            compute_device, graphics_device, physics_engine, sim_params)
         if sim is None:
             print("*** Failed to create sim")
             quit()
@@ -301,9 +308,11 @@ class VecTask(Env):
 
         # randomize actions
         if self.dr_randomizations.get('actions', None):
-            actions = self.dr_randomizations['actions']['noise_lambda'](actions)
+            actions = self.dr_randomizations['actions']['noise_lambda'](
+                actions)
 
-        action_tensor = torch.clamp(actions, -self.clip_actions, self.clip_actions)
+        action_tensor = torch.clamp(
+            actions, -self.clip_actions, self.clip_actions)
         # apply actions
         self.pre_physics_step(action_tensor)
 
@@ -317,18 +326,21 @@ class VecTask(Env):
             self.gym.fetch_results(self.sim, True)
 
         # fill time out buffer
-        self.timeout_buf = torch.where(self.progress_buf >= self.max_episode_length - 1, torch.ones_like(self.timeout_buf), torch.zeros_like(self.timeout_buf))
-        
+        self.timeout_buf = torch.where(self.progress_buf >= self.max_episode_length - 1,
+                                       torch.ones_like(self.timeout_buf), torch.zeros_like(self.timeout_buf))
+
         # compute observations, rewards, resets, ...
         self.post_physics_step()
 
         # randomize observations
         if self.dr_randomizations.get('observations', None):
-            self.obs_buf = self.dr_randomizations['observations']['noise_lambda'](self.obs_buf)
+            self.obs_buf = self.dr_randomizations['observations']['noise_lambda'](
+                self.obs_buf)
 
         self.extras["time_outs"] = self.timeout_buf.to(self.rl_device)
 
-        self.obs_dict["obs"] = torch.clamp(self.obs_buf, -self.clip_obs, self.clip_obs).to(self.rl_device)
+        self.obs_dict["obs"] = torch.clamp(
+            self.obs_buf, -self.clip_obs, self.clip_obs).to(self.rl_device)
 
         # asymmetric actor-critic
         if self.num_states > 0:
@@ -342,14 +354,15 @@ class VecTask(Env):
         Returns:
             A buffer of zero torch actions
         """
-        actions = torch.zeros([self.num_envs, self.num_actions], dtype=torch.float32, device=self.rl_device)
+        actions = torch.zeros(
+            [self.num_envs, self.num_actions], dtype=torch.float32, device=self.rl_device)
 
         return actions
 
     def reset_idx(self, env_idx):
         """Reset environment with indces in env_idx. 
         Should be implemented in an environment class inherited from VecTask.
-        """  
+        """
         pass
 
     def reset(self):
@@ -358,7 +371,8 @@ class VecTask(Env):
         Returns:
             Observation dictionary
         """
-        self.obs_dict["obs"] = torch.clamp(self.obs_buf, -self.clip_obs, self.clip_obs).to(self.rl_device)
+        self.obs_dict["obs"] = torch.clamp(
+            self.obs_buf, -self.clip_obs, self.clip_obs).to(self.rl_device)
 
         # asymmetric actor-critic
         if self.num_states > 0:
@@ -375,7 +389,8 @@ class VecTask(Env):
         if len(done_env_ids) > 0:
             self.reset_idx(done_env_ids)
 
-        self.obs_dict["obs"] = torch.clamp(self.obs_buf, -self.clip_obs, self.clip_obs).to(self.rl_device)
+        self.obs_dict["obs"] = torch.clamp(
+            self.obs_buf, -self.clip_obs, self.clip_obs).to(self.rl_device)
 
         # asymmetric actor-critic
         if self.num_states > 0:
@@ -451,9 +466,11 @@ class VecTask(Env):
             if "physx" in config_sim:
                 for opt in config_sim["physx"].keys():
                     if opt == "contact_collection":
-                        setattr(sim_params.physx, opt, gymapi.ContactCollection(config_sim["physx"][opt]))
+                        setattr(sim_params.physx, opt, gymapi.ContactCollection(
+                            config_sim["physx"][opt]))
                     else:
-                        setattr(sim_params.physx, opt, config_sim["physx"][opt])
+                        setattr(sim_params.physx, opt,
+                                config_sim["physx"][opt])
         else:
             # set the parameters
             if "flex" in config_sim:
@@ -530,10 +547,13 @@ class VecTask(Env):
             do_nonenv_randomize = True
             env_ids = list(range(self.num_envs))
         else:
-            do_nonenv_randomize = (self.last_step - self.last_rand_step) >= rand_freq
-            rand_envs = torch.where(self.randomize_buf >= rand_freq, torch.ones_like(self.randomize_buf), torch.zeros_like(self.randomize_buf))
+            do_nonenv_randomize = (
+                self.last_step - self.last_rand_step) >= rand_freq
+            rand_envs = torch.where(self.randomize_buf >= rand_freq, torch.ones_like(
+                self.randomize_buf), torch.zeros_like(self.randomize_buf))
             rand_envs = torch.logical_and(rand_envs, self.reset_buf)
-            env_ids = torch.nonzero(rand_envs, as_tuple=False).squeeze(-1).tolist()
+            env_ids = torch.nonzero(
+                rand_envs, as_tuple=False).squeeze(-1).tolist()
             self.randomize_buf[rand_envs] = 0
 
         if do_nonenv_randomize:
@@ -565,7 +585,8 @@ class VecTask(Env):
 
                 if dist == 'gaussian':
                     mu, var = dr_params[nonphysical_param]["range"]
-                    mu_corr, var_corr = dr_params[nonphysical_param].get("range_correlated", [0., 0.])
+                    mu_corr, var_corr = dr_params[nonphysical_param].get(
+                        "range_correlated", [0., 0.])
 
                     if op_type == 'additive':
                         mu *= sched_scaling
@@ -591,11 +612,13 @@ class VecTask(Env):
                         return op(
                             tensor, corr + torch.randn_like(tensor) * params['var'] + params['mu'])
 
-                    self.dr_randomizations[nonphysical_param] = {'mu': mu, 'var': var, 'mu_corr': mu_corr, 'var_corr': var_corr, 'noise_lambda': noise_lambda}
+                    self.dr_randomizations[nonphysical_param] = {
+                        'mu': mu, 'var': var, 'mu_corr': mu_corr, 'var_corr': var_corr, 'noise_lambda': noise_lambda}
 
                 elif dist == 'uniform':
                     lo, hi = dr_params[nonphysical_param]["range"]
-                    lo_corr, hi_corr = dr_params[nonphysical_param].get("range_correlated", [0., 0.])
+                    lo_corr, hi_corr = dr_params[nonphysical_param].get(
+                        "range_correlated", [0., 0.])
 
                     if op_type == 'additive':
                         lo *= sched_scaling
@@ -605,8 +628,10 @@ class VecTask(Env):
                     elif op_type == 'scaling':
                         lo = lo * sched_scaling + 1.0 * (1.0 - sched_scaling)
                         hi = hi * sched_scaling + 1.0 * (1.0 - sched_scaling)
-                        lo_corr = lo_corr * sched_scaling + 1.0 * (1.0 - sched_scaling)
-                        hi_corr = hi_corr * sched_scaling + 1.0 * (1.0 - sched_scaling)
+                        lo_corr = lo_corr * sched_scaling + \
+                            1.0 * (1.0 - sched_scaling)
+                        hi_corr = hi_corr * sched_scaling + \
+                            1.0 * (1.0 - sched_scaling)
 
                     def noise_lambda(tensor, param_name=nonphysical_param):
                         params = self.dr_randomizations[param_name]
@@ -614,10 +639,13 @@ class VecTask(Env):
                         if corr is None:
                             corr = torch.randn_like(tensor)
                             params['corr'] = corr
-                        corr = corr * (params['hi_corr'] - params['lo_corr']) + params['lo_corr']
+                        corr = corr * \
+                            (params['hi_corr'] - params['lo_corr']) + \
+                            params['lo_corr']
                         return op(tensor, corr + torch.rand_like(tensor) * (params['hi'] - params['lo']) + params['lo'])
 
-                    self.dr_randomizations[nonphysical_param] = {'lo': lo, 'hi': hi, 'lo_corr': lo_corr, 'hi_corr': hi_corr, 'noise_lambda': noise_lambda}
+                    self.dr_randomizations[nonphysical_param] = {
+                        'lo': lo, 'hi': hi, 'lo_corr': lo_corr, 'hi_corr': hi_corr, 'noise_lambda': noise_lambda}
 
         if "sim_params" in dr_params and do_nonenv_randomize:
             prop_attrs = dr_params["sim_params"]
@@ -681,7 +709,8 @@ class VecTask(Env):
                                 {attr: getattr(p, attr) for attr in dir(p)} for p in prop]
                         for p, og_p in zip(prop, self.original_props[prop_name]):
                             for attr, attr_randomization_params in prop_attrs.items():
-                                setup_only = attr_randomization_params.get('setup_only', False)
+                                setup_only = attr_randomization_params.get(
+                                    'setup_only', False)
                                 if (setup_only and not self.sim_initialized) or not setup_only:
                                     smpl = None
                                     if self.actor_params_generator is not None:
@@ -696,7 +725,8 @@ class VecTask(Env):
                         if self.first_randomization:
                             self.original_props[prop_name] = deepcopy(prop)
                         for attr, attr_randomization_params in prop_attrs.items():
-                            setup_only = attr_randomization_params.get('setup_only', False)
+                            setup_only = attr_randomization_params.get(
+                                'setup_only', False)
                             if (setup_only and not self.sim_initialized) or not setup_only:
                                 smpl = None
                                 if self.actor_params_generator is not None:
@@ -724,4 +754,3 @@ class VecTask(Env):
                         raise Exception("Invalid extern_sample size")
 
         self.first_randomization = False
-
