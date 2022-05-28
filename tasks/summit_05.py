@@ -17,8 +17,8 @@ import wandb
 from .base.vec_task import VecTask  # pre-defined abstract class
 from .helper_5 import *
 
-wandb.init(project="box_pushing_task2", config={
-           "room": "square_r1"}, entity="leonyao", mode="disabled")
+run = wandb.init(project="box_pushing_task2", config={
+    "room": "square_r1"}, entity="leonyao", mode="online")
 
 
 class Summit(VecTask):
@@ -49,13 +49,13 @@ class Summit(VecTask):
             self.max_num_boxes = 0
 
         self.num_walls = len(self.room_config['wall_cfg']['walls'])  # 8
-        #               summit     walls             boxes        goal
-        self.num_actors = 1 + self.num_walls + self.max_num_boxes + 1
+        #               summit     walls             boxes        goals
+        self.num_actors = 1 + self.num_walls + self.max_num_boxes + 2
 
         self.max_episode_length = self.cfg["env"]["episodeLength"]
         # self.cfg["env"]["numObservations"] = 9 + \
         #     4 * self.num_walls + 24 * self.max_num_boxes  # 65
-        numObservations = 12 + 24 * self.max_num_boxes
+        numObservations = 14 + 24 * self.max_num_boxes
         print('NUMBER OF HISTORY')
         print(self.cfg['env']['numHistory'])
         self.cfg["env"]["numObservations"] = numObservations * \
@@ -82,6 +82,8 @@ class Summit(VecTask):
         self.box_progress_weight = self.cfg['env']['boxProgressWeight']
         self.box_dist_weight = self.cfg['env']['boxDistWeight']
         self.box_reached_goal_weight = self.cfg['env']['boxReachedGoalWeight']
+        self.box_failed_reached_goal_weight = self.cfg['env']['boxFailedReachedGoalWeight']
+        self.box_in_zone_weight = self.cfg['env']['boxInZoneWeight']
 
         # cost parameters
         self.time_weight = self.cfg['env']['timeWeight']
@@ -95,6 +97,8 @@ class Summit(VecTask):
                         'boxProgressWeight': self.box_progress_weight,
                         'boxDistWeight': self.box_dist_weight,
                         'boxReachedGoalWeight': self.box_reached_goal_weight,
+                        'boxFailedReachedGoalWeight': self.box_failed_reached_goal_weight,
+                        'boxInZoneWeight': self.box_in_zone_weight
                         }
 
         # initial pos and rot, and randomization parameters
@@ -102,7 +106,8 @@ class Summit(VecTask):
         self.randomize_box_rot = self.cfg['env']['randomize_box']['randomize_rot']
         self.randomize_summit_pos = self.cfg['env']['randomize_summit']['randomize_pos']
         self.randomize_summit_rot = self.cfg['env']['randomize_summit']['randomize_rot']
-        self.randomize_goal_pos = self.cfg['env']['randomize_goal']['randomize_pos']
+        self.randomize_summit_goal_pos = self.cfg['env']['randomize_summit_goal']['randomize_pos']
+        self.randomize_box_goal_pos = self.cfg['env']['randomize_box_goal']['randomize_pos']
         self.randomize_box_properties = self.cfg['env']['randomize_box_properties']
         self.randomize_summit_properties = self.cfg['env']['randomize_summit_properties']
 
@@ -116,9 +121,12 @@ class Summit(VecTask):
             self.summit_x_bound = self.cfg['env']['randomize_summit']['x_bound']
             self.summit_y_bound = self.cfg['env']['randomize_summit']['y_bound']
             self.summit_whole_map_start_prob = self.cfg['env']['randomize_summit']['whole_map_start_prob']
-        if self.randomize_goal_pos:
-            self.goal_x_bound = self.cfg['env']['randomize_goal']['x_bound']
-            self.goal_y_bound = self.cfg['env']['randomize_goal']['y_bound']
+        if self.randomize_summit_goal_pos:
+            self.summit_goal_x_bound = self.cfg['env']['randomize_summit_goal']['x_bound']
+            self.summit_goal_y_bound = self.cfg['env']['randomize_summit_goal']['y_bound']
+        if self.randomize_box_goal_pos:
+            self.box_goal_x_bound = self.cfg['env']['randomize_box_goal']['x_bound']
+            self.box_goal_y_bound = self.cfg['env']['randomize_box_goal']['y_bound']
         if self.randomize_box_properties:
             self.random_box_mass = self.cfg['env']['randomize_properties']['box_mass']
             self.random_box_friction = self.cfg['env']['randomize_properties']['box_friction']
@@ -139,7 +147,8 @@ class Summit(VecTask):
              'Episode Length': self.max_episode_length,
              'Num Boxes': self.max_num_boxes,
              'Randomize Boxes': self.randomize_box_pos,
-             'Randomize Summit prob': self.summit_whole_map_start_prob},
+             'Randomize Summit prob': self.summit_whole_map_start_prob,
+             **self.weights},
         )
 
         self.actionOptions = torch.tensor([[1, 1, 1, 1], [-1, -1, -1, -1],
@@ -182,13 +191,14 @@ class Summit(VecTask):
 
         # This is the initial state of summit & boxes
         self.initial_root_states = self.actor_root_state_tensor.clone()
+        self.initial_summit_state = self.initial_root_states[:, 0, 0:13]
         self.initial_summit_pos = self.initial_root_states[:, 0, 0:3]
         self.initial_summit_rot = self.initial_root_states[:, 0, 3:7]
         if self.max_num_boxes > 0:
             self.initial_boxes_pos = self.initial_root_states[:,
-                                                              1+self.num_walls:self.num_actors-1, 0:3]
+                                                              1+self.num_walls:1+self.num_walls + self.max_num_boxes, 0:3]
             self.initial_boxes_rot = self.initial_root_states[:,
-                                                              1+self.num_walls:self.num_actors-1, 3:7]
+                                                              1+self.num_walls:1+self.num_walls + self.max_num_boxes, 3:7]
 
         self.initial_dof_pos = torch.zeros_like(
             self.dof_pos, device=self.device, dtype=torch.float)
@@ -208,6 +218,7 @@ class Summit(VecTask):
 
         self.dt = self.cfg["sim"]["dt"]
         self.t = 0
+        self.control_dt = self.cfg['env']['controlFrequencyInv'] * self.dt
         # self.log_frequency = self.cfg['env']['controlFrequencyInv']
         self.log_frequency = 1
 
@@ -219,31 +230,34 @@ class Summit(VecTask):
         self.summit_ang_vel_tensor = self.summit_state_tensor[:, 10:13]
         if self.max_num_boxes > 0:
             self.box_state_tensor = self.actor_root_state_tensor[:,
-                                                                 1+self.num_walls:self.num_actors-1, :13]
+                                                                 1+self.num_walls:1+self.num_walls+self.max_num_boxes, :13]
 
             self.boxes_pos_tensor = self.box_state_tensor[:, :, 0:3]
             self.boxes_rot_tensor = self.box_state_tensor[:, :, 3:7]
         else:
             self.box_state_tensor = self.summit_state_tensor.clone()
-        self.goal_state_tensor = self.actor_root_state_tensor[:,
-                                                              self.num_actors-1, :13]
-        self.goal_pos_tensor = self.goal_state_tensor[:, 0:3]
+        self.box_goal_state_tensor = self.actor_root_state_tensor[:,
+                                                                  self.num_actors-1, :13]
+        self.summit_goal_state_tensor = self.actor_root_state_tensor[:,
+                                                                     self.num_actors-2, :13]
+        self.box_goal_pos_tensor = self.box_goal_state_tensor[:, 0:3]
+        self.summit_goal_pos_tensor = self.summit_goal_state_tensor[:, 0:3]
 
         # calculate potentials (not hard coded & depends on init pos)
-        self.dist_to_target = self.goal_pos_tensor - self.summit_pos_tensor
+        self.dist_to_target = self.summit_goal_pos_tensor - self.summit_pos_tensor
         self.dist_to_target[:, 2] = 0.0
         self.dist_to_target = torch.norm(self.dist_to_target, p=2, dim=-1)
 
-        self.box_dist_to_target = self.goal_pos_tensor - \
+        self.box_dist_to_target = self.box_goal_pos_tensor - \
             self.boxes_pos_tensor[:, 0, :]
         self.box_dist_to_target[:, 2] = 0.0
         self.box_dist_to_target = torch.norm(
             self.box_dist_to_target, p=2, dim=-1)
 
-        self.potentials = - self.dist_to_target / self.dt
+        self.potentials = - self.dist_to_target / self.control_dt
         self.prev_potentials = self.potentials.clone()
 
-        self.box_potentials = -self.box_dist_to_target / self.dt
+        self.box_potentials = -self.box_dist_to_target / self.control_dt
         self.prev_box_potentials = self.box_potentials.clone()
 
         self.reached_target = torch.zeros_like(self.potentials)
@@ -260,6 +274,9 @@ class Summit(VecTask):
         self.box_progress_rew_log = 0
         self.box_dist_rew_log = 0
         self.num_box_reached_goal = 0
+        self.summit_reached_goal_rew_log = 0
+        self.box_reached_goal_rew_log = 0
+        self.box_failed_reached_goal_rew_log = 0
 
         # we use a list here for efficient queue implementation
         self.running_agent_status = [0] * self.num_envs
@@ -292,7 +309,7 @@ class Summit(VecTask):
     def _create_envs(self, num_envs, spacing, num_per_row):
         # ---------------- LOAD ASSETS ----------------
         # load data from self.room_config using helper function
-        map_coords, goal_pos = load_room_from_config(
+        map_coords, summit_goal_pos, box_goal_pos = load_room_from_config(
             self.room_config)
         self.box_width = self.room_config['box_cfg']['box_width']
         self.object_radius = (2 * self.box_width**2)**0.5
@@ -303,10 +320,14 @@ class Summit(VecTask):
         self.map_coords = map_coords
         self.wall_coords = to_torch(
             map_coords, device=self.device, dtype=torch.float).flatten().repeat((self.num_envs, 1))
-        self.goal_pos = to_torch(
-            [goal_pos], device=self.device, dtype=torch.float).repeat((self.num_envs, 1))
-        self.goal_radius = to_torch(
-            self.room_config['goal_cfg']['goal_radius'], device=self.device, dtype=torch.float)
+        self.summit_goal_pos = to_torch(
+            [summit_goal_pos], device=self.device, dtype=torch.float).repeat((self.num_envs, 1))
+        self.summit_goal_radius = to_torch(
+            self.room_config['summit_goal_cfg']['goal_radius'], device=self.device, dtype=torch.float)
+        self.box_goal_pos = to_torch(
+            [box_goal_pos], device=self.device, dtype=torch.float).repeat((self.num_envs, 1))
+        self.box_goal_radius = to_torch(
+            self.room_config['box_goal_cfg']['goal_radius'], device=self.device, dtype=torch.float)
         self.summit_default_initial_pos = [
             self.room_config['summit_cfg']['pos_x'], self.room_config['summit_cfg']['pos_y']]
         self.room_width, self.room_height = self.room_config[
@@ -316,7 +337,7 @@ class Summit(VecTask):
 
         # Create lists to keep track of all the assets
         # note that walls is a dictionary indexed by wall lengths
-        prim_names = ['robot', 'boxes', 'walls', 'goal']
+        prim_names = ['robot', 'boxes', 'walls', 'summit_goal', 'box_goal']
         self.gym_assets = dict.fromkeys(prim_names)
         self.gym_indices = dict.fromkeys(prim_names)
 
@@ -371,12 +392,18 @@ class Summit(VecTask):
 
         # Load goal asset
         goal_height = 0.01
-        goal_radius = self.room_config['goal_cfg']['goal_radius']
+        goal_radius = self.room_config['summit_goal_cfg']['goal_radius']
         goal_asset_options = gymapi.AssetOptions()
         goal_asset_options.fix_base_link = True
         asset_goal = self.gym.create_box(
             self.sim, goal_radius, goal_radius, goal_height, goal_asset_options)
-        self.gym_assets['goal'] = asset_goal
+        self.gym_assets['summit_goal'] = asset_goal
+
+        goal_height = 0.012
+        goal_radius = self.room_config['box_goal_cfg']['goal_radius']
+        asset_goal = self.gym.create_box(
+            self.sim, goal_radius, goal_radius, goal_height, goal_asset_options)
+        self.gym_assets['box_goal'] = asset_goal
 
         # Set summit dof properties
         summit_dof_props = self.gym.get_asset_dof_properties(summit_asset)
@@ -473,10 +500,15 @@ class Summit(VecTask):
                     env, box_handle, box_body_props)
 
             # add goal actor
-            goal_handle = self.gym.create_actor(
-                env, self.gym_assets['goal'], gymapi.Transform(p=gymapi.Vec3(goal_pos[0], goal_pos[1], goal_height/2)), 'goal', i+1, 0)
+            summit_goal_handle = self.gym.create_actor(
+                env, self.gym_assets['summit_goal'], gymapi.Transform(p=gymapi.Vec3(summit_goal_pos[0], summit_goal_pos[1], goal_height/2)), 'summit_goal', i+1, 0)
+            box_goal_handle = self.gym.create_actor(
+                env, self.gym_assets['box_goal'], gymapi.Transform(p=gymapi.Vec3(box_goal_pos[0], box_goal_pos[1], goal_height/2)), 'box_goal', i+1, 0)
+
             self.gym.set_rigid_body_color(
-                env, goal_handle, 0, gymapi.MeshType.MESH_VISUAL, gymapi.Vec3(0, 255, 0))
+                env, box_goal_handle, 0, gymapi.MeshType.MESH_VISUAL, gymapi.Vec3(0, 255, 0))
+            self.gym.set_rigid_body_color(
+                env, summit_goal_handle, 0, gymapi.MeshType.MESH_VISUAL, gymapi.Vec3(0, 0, 255))
 
     def compute_reward(self, actions):
 
@@ -486,13 +518,8 @@ class Summit(VecTask):
             self.box_potentials, self.prev_box_potentials, self.box_dist_to_target,
             self.box_reached_target, self.max_dist, self.vel_offset, self.power_scale, self.weights)
 
-        mean_rew = logs['meanRew']
-        mean_progress_rew = logs['meanProgressRew']
-        mean_dist_rew = logs['meanDistRew']
         num_reached_goal = logs['numReachedGoal']
         num_fail_reach_goal = logs['numFailReachedGoal']
-        mean_box_progress_rew = logs['meanBoxProgressRew']
-        mean_box_dist_rew = logs['meanBoxDistRew']
         num_box_reached_goal = logs['numBoxReachedGoal']
         num_box_fail_reached_goal = logs['numBoxFailReachedGoal']
 
@@ -512,13 +539,17 @@ class Summit(VecTask):
             self.running_box_status.append(0)
 
         # log data for wandb
-        self.reward_log = mean_rew
-        self.progress_rew_log = mean_progress_rew
-        self.dist_rew_log = mean_dist_rew
+        self.reward_log = logs['meanRew']
+        self.progress_rew_log = logs['meanProgressRew']
+        self.dist_rew_log = logs['meanDistRew']
         self.num_reached_goal = num_reached_goal
         self.num_box_reached_goal = num_box_reached_goal
-        self.box_dist_rew_log = mean_box_dist_rew
-        self.box_progress_rew_log = mean_box_progress_rew
+        self.box_dist_rew_log = logs['meanBoxDistRew']
+        self.box_progress_rew_log = logs['meanBoxProgressRew']
+        self.summit_reached_goal_rew_log = logs['summitReachedGoalRew']
+        self.box_reached_goal_rew_log = logs['boxReachedGoalRew']
+        self.box_failed_reached_goal_rew_log = logs['boxFailedReachedGoalCost']
+        self.box_in_zone_rew_log = logs['boxInZoneRew']
 
     def compute_observations(self):
         self.gym.refresh_dof_state_tensor(self.sim)
@@ -526,19 +557,27 @@ class Summit(VecTask):
         # self.gym.refresh_net_contact_force_tensor(self.sim)
 
         self.obs_buf[:], self.reached_target[:], self.potentials[:], self.prev_potentials[:], self.dist_to_target, self.box_reached_target[:], self.box_potentials[:], self.prev_box_potentials[:], self.box_dist_to_target[:] = compute_summit_observations(
-            self.obs_buf[:], self.potentials, self.prev_potentials, self.num_envs, self.max_num_boxes, self.dt,
-            self.goal_pos_tensor, self.goal_radius, self.wall_coords, self.summit_pos_tensor,
-            self.summit_vel_tensor, self.summit_rot_tensor, self.summit_ang_vel_tensor,
+            self.obs_buf[:], self.potentials, self.prev_potentials, self.num_envs, self.max_num_boxes, self.control_dt,
+            self.box_goal_pos_tensor, self.box_goal_radius, self.summit_goal_pos_tensor, self.summit_goal_radius,
+            self.wall_coords, self.summit_pos_tensor, self.summit_vel_tensor, self.summit_rot_tensor, self.summit_ang_vel_tensor,
             self.target_velocities, self.dof_vel, self.box_state_tensor, self.box_potentials, self.prev_box_potentials)
 
     def reset_idx(self, env_ids):
         env_ids_int32 = env_ids.to(dtype=torch.int32)
         summit_indices = self.global_indices[env_ids, 0].flatten()
         box_indices = self.global_indices[env_ids,
-                                          1 + self.num_walls:self.num_actors-1].flatten()
+                                          1 + self.num_walls:1 + self.num_walls + self.max_num_boxes].flatten()
 
-        goal_indices = self.global_indices[env_ids,
-                                           self.num_actors-1].flatten()
+        box_goal_indices = self.global_indices[env_ids,
+                                               self.num_actors-1].flatten()
+        summit_goal_indices = self.global_indices[env_ids,
+                                                  self.num_actors-2].flatten()
+
+        # reset vel, rot vel to initial values
+        self.summit_state_tensor[env_ids][7:
+                                          10] = self.initial_summit_state[env_ids][7:10]
+        self.summit_state_tensor[env_ids][10:
+                                          13] = self.initial_summit_state[env_ids][10:13]
         # reset summit and box positions
         for env_idx in env_ids_int32:
             box_idx = 0
@@ -609,11 +648,17 @@ class Summit(VecTask):
                                                      (len(env_ids), self.summit_num_dofs), device=self.device)
 
         # reset goal position
-        if self.randomize_goal_pos:
-            goal_pos = torch_rand_float(-self.room_width/2, self.room_width/2,
-                                        (len(env_ids), 3), device=self.device)
-            goal_pos[:, 2] = 0.005
-            self.goal_pos_tensor[env_ids] = goal_pos
+        if self.randomize_box_goal_pos:
+            box_goal_pos = torch_rand_float(-self.room_width/2, self.room_width/2,
+                                            (len(env_ids), 3), device=self.device)
+            box_goal_pos[:, 2] = 0.005
+            self.box_goal_pos_tensor[env_ids] = box_goal_pos
+
+        if self.randomize_summit_goal_pos:
+            summit_goal_pos = torch_rand_float(-self.room_width/2, self.room_width/2,
+                                               (len(env_ids), 3), device=self.device)
+            summit_goal_pos[:, 2] = 0.005
+            self.summit_goal_pos_tensor[env_ids] = summit_goal_pos
 
         self.dof_pos[env_ids] = self.initial_dof_pos[env_ids]
         self.dof_vel[env_ids] = summit_dof_velocity_noise
@@ -623,38 +668,28 @@ class Summit(VecTask):
                                                   self.dof_state_tensor),
                                               gymtorch.unwrap_tensor(summit_indices), len(env_ids_int32))
         update_indices = torch.cat(
-            (summit_indices, goal_indices, box_indices), dim=-1)
+            (summit_indices, box_goal_indices, summit_goal_indices, box_indices), dim=-1)
 
         self.gym.set_actor_root_state_tensor_indexed(self.sim,
                                                      gymtorch.unwrap_tensor(
                                                          self.actor_root_state_tensor),
                                                      gymtorch.unwrap_tensor(update_indices), len(update_indices))
 
-        # self.gym.set_actor_root_state_tensor_indexed(self.sim,
-        #                                              gymtorch.unwrap_tensor(
-        #                                                  self.actor_root_state_tensor),
-        #                                              gymtorch.unwrap_tensor(goal_indices), len(env_ids_int32))
-
-        # if self.max_num_boxes > 0:
-        #     self.gym.set_actor_root_state_tensor_indexed(self.sim,
-        #                                                  gymtorch.unwrap_tensor(
-        #                                                      self.actor_root_state_tensor),
-        #  gymtorch.unwrap_tensor(box_indices), len(env_ids_int32))
-
         # reset other internal variables
-        dist_to_target = self.goal_pos_tensor - self.summit_pos_tensor
+        dist_to_target = self.summit_goal_pos_tensor - self.summit_pos_tensor
         dist_to_target[:, 2] = 0.0
         dist_to_target = torch.norm(dist_to_target, p=2, dim=-1)
 
-        box_dist_to_target = self.goal_pos_tensor - \
+        box_dist_to_target = self.box_goal_pos_tensor - \
             self.boxes_pos_tensor[:, 0, :]
         box_dist_to_target[:, 2] = 0.0
         box_dist_to_target = torch.norm(box_dist_to_target, p=2, dim=-1)
 
-        self.potentials[env_ids] = - dist_to_target[env_ids] / self.dt
+        self.potentials[env_ids] = - dist_to_target[env_ids] / self.control_dt
         self.prev_potentials[env_ids] = self.potentials[env_ids].clone()
 
-        self.box_potentials[env_ids] = - box_dist_to_target[env_ids] / self.dt
+        self.box_potentials[env_ids] = - \
+            box_dist_to_target[env_ids] / self.control_dt
         self.prev_box_potentials[env_ids] = self.box_potentials[env_ids].clone(
         )
 
@@ -713,6 +748,7 @@ class Summit(VecTask):
         # TODO: refactor this into compute_observations
         offset = torch.mean(torch.norm(
             self.target_velocities - self.dof_vel, p=2, dim=-1))
+
         if self.t % self.log_frequency == 0:
             wandb.log({
                 'total reward': self.reward_log,
@@ -724,9 +760,13 @@ class Summit(VecTask):
                 'num boxes reached goal': self.num_box_reached_goal,
                 'episode length': torch.sum(self.progress_buf)/self.num_envs,
                 'percentage completed': sum(self.running_agent_status)/len(self.running_agent_status),
-                'percentage completed (box)': sum(self.running_box_status) / len(self.running_agent_status),
+                'percentage completed (box)': sum(self.running_box_status) / len(self.running_box_status),
                 'time steps': self.t,
                 'vel_offset': offset,
+                'summit reach goal reward': self.summit_reached_goal_rew_log,
+                'box reach goal reward': self.box_reached_goal_rew_log,
+                'box fail reach goal cost': self.box_failed_reached_goal_rew_log,
+                'box in zone reward': self.box_in_zone_rew_log
             })
 
 
@@ -754,20 +794,19 @@ def compute_summit_reward(obs_buf, progress_buf, reset_buf, max_episode_lengths,
                           box_reached_target, max_dist, vel_offset, power_scale, weights):
     # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, float, Tensor, float, Dict[str, float]) -> Tuple[Tensor, Tensor, Dict[str, Tensor]]
     # euclidian distance to goal
-    progress_reward = (potentials - prev_potentials) * \
+    progress_reward = (potentials - prev_potentials)/(power_scale*0.127) * \
         weights['progressWeight']
     dist_reward = ((max_dist - dist_to_target) /
                    max_dist) * weights['distWeight']
 
-    box_progress_reward = (
-        box_potentials - prev_box_potentials) * weights['boxProgressWeight']
+    box_progress_reward = (box_potentials - prev_box_potentials) / \
+        (power_scale*0.127) * weights['boxProgressWeight']
     box_dist_reward = ((max_dist - box_dist_to_target) /
                        max_dist) * weights['boxDistWeight']
 
     # reached target reward
     reached_goal_reward = reached_target * weights['reachedGoalWeight']
-    box_reached_goal_reward = box_reached_target * \
-        weights['boxReachedGoalWeight']
+    box_in_zone_reward = box_reached_target * weights['boxInZoneWeight']
 
     # action cost
     # optional: additional penalty for pushing boxes
@@ -780,29 +819,30 @@ def compute_summit_reward(obs_buf, progress_buf, reset_buf, max_episode_lengths,
     # dof_offset_cost = - vel_offset/power_scale *  weights['timeWeight']
 
     # optional: dof at limit
-    total_reward = progress_reward + time_cost + \
-        box_progress_reward + box_dist_reward + \
-        reached_goal_reward + box_reached_goal_reward
-    # print(f'net reward: {total_reward[0]}')
 
     # Reset agents who have reached the target
-    # reset = torch.where(reached_target == 1,
-    #                     torch.ones_like(reset_buf), reset_buf)
-
-    num_reached_goal = torch.sum(reset_buf)
-
-    reset = torch.where(box_reached_target == 1,
+    reset = torch.where(reached_target == 1,
                         torch.ones_like(reset_buf), reset_buf)
 
-    num_box_reached_goal = torch.sum(reset)
+    num_reached_goal = torch.sum(reset)
+
+    box_reached_goal_reward = torch.where(box_reached_target == 1, reset, torch.zeros_like(reset)) * \
+        weights['boxReachedGoalWeight']
+    box_failed_reached_goal_cost = -(1 - box_reached_target) * reset * \
+        weights['boxFailedReachedGoalWeight']
 
     # Reset agents who have exceeded maximum episode length
     reset = torch.where(progress_buf >= max_episode_lengths -
                         1, torch.ones_like(reset_buf), reset)
 
-    num_box_fail_reached_goal = torch.sum(reset) - num_box_reached_goal
+    num_box_reached_goal = torch.sum(box_reached_target * reset)
 
+    num_box_fail_reached_goal = torch.sum(reset) - num_box_reached_goal
     num_fail_reach_goal = torch.sum(reset) - num_reached_goal
+
+    total_reward = progress_reward + time_cost + \
+        box_progress_reward + box_dist_reward + \
+        reached_goal_reward + box_reached_goal_reward + box_in_zone_reward
 
     # Get the mean value of rewards for w&b
     mean_rew = torch.mean(total_reward)
@@ -820,7 +860,11 @@ def compute_summit_reward(obs_buf, progress_buf, reset_buf, max_episode_lengths,
         'numReachedGoal': num_reached_goal,
         'numBoxReachedGoal': num_box_reached_goal,
         'numFailReachedGoal': num_fail_reach_goal,
-        'numBoxFailReachedGoal': num_box_fail_reached_goal}
+        'numBoxFailReachedGoal': num_box_fail_reached_goal,
+        'summitReachedGoalRew': torch.mean(reached_goal_reward),
+        'boxReachedGoalRew': torch.mean(box_reached_goal_reward),
+        'boxFailedReachedGoalCost': torch.mean(box_failed_reached_goal_cost),
+        'boxInZoneRew': torch.mean(box_in_zone_reward)}
 
     return total_reward, reset, logs
 
@@ -828,18 +872,19 @@ def compute_summit_reward(obs_buf, progress_buf, reset_buf, max_episode_lengths,
 @ torch.jit.script
 # refactor code to here if need expensive computations
 def compute_summit_observations(obs_buf, potentials, prev_potentials, num_envs, max_num_boxes, dt,
-                                goal_pos, goal_radius, map_coords, summit_pos_tensor,
+                                box_goal_pos, box_goal_radius, summit_goal_pos, summit_goal_radius, map_coords, summit_pos_tensor,
                                 summit_vel_tensor, summit_rot_tensor, summit_ang_vel_tensor,
                                 target_velocities, dof_vel, box_state_tensor, box_potentials, prev_box_potentials):
-    # type: (Tensor, Tensor, Tensor, int, int, float, Tensor, float, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor) -> Tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]
+    # type: (Tensor, Tensor, Tensor, int, int, float, Tensor, float, Tensor, float, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor) -> Tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]
 
     # update internal states
-    dist_to_target = goal_pos - summit_pos_tensor
+    dist_to_target = summit_goal_pos - summit_pos_tensor
     dist_to_target[:, 2] = 0.0
     dist_to_target = torch.norm(dist_to_target, p=2, dim=-1)
 
+    # TODO: this needs to support multiple boxes
     box_pos = box_state_tensor[:, 0, 0:3]
-    box_dist_to_target = goal_pos - box_pos
+    box_dist_to_target = box_goal_pos - box_pos
     box_dist_to_target[:, 2] = 0.0
     box_dist_to_target = torch.norm(box_dist_to_target, p=2, dim=-1)
 
@@ -849,15 +894,16 @@ def compute_summit_observations(obs_buf, potentials, prev_potentials, num_envs, 
     prev_box_potentials = box_potentials.clone()
     box_potentials = -box_dist_to_target / dt
 
-    reached_target = torch.where(dist_to_target <= goal_radius, torch.ones_like(
+    reached_target = torch.where(dist_to_target <= summit_goal_radius, torch.ones_like(
         dist_to_target), torch.zeros_like(dist_to_target))
 
-    box_reached_target = torch.where(box_dist_to_target <= goal_radius, torch.ones_like(
+    box_reached_target = torch.where(box_dist_to_target <= box_goal_radius, torch.ones_like(
         box_dist_to_target), torch.zeros_like(box_dist_to_target))
 
     vel_offset = torch.norm(target_velocities - dof_vel, p=2, dim=-1)
 
-    goal_pos = goal_pos[:, 0:2]
+    summit_goal_pos = summit_goal_pos[:, 0:2]
+    box_goal_pos = box_goal_pos[:, 0:2]
     # summit pos, vel, rot, reducing to 2d
     summit_pos = summit_pos_tensor[:, 0:2]
     summit_vel = summit_vel_tensor[:, 0:2]
@@ -868,7 +914,7 @@ def compute_summit_observations(obs_buf, potentials, prev_potentials, num_envs, 
     wall_bounds = map_coords
 
     # obs_buf for curr time step
-    curr_obs_buf = torch.cat((goal_pos, summit_pos, summit_vel, summit_rot_roll.unsqueeze(
+    curr_obs_buf = torch.cat((summit_goal_pos, box_goal_pos, summit_pos, summit_vel, summit_rot_roll.unsqueeze(
         -1),  summit_rot_pitch.unsqueeze(-1), summit_rot_yaw.unsqueeze(-1), summit_ang_vel), dim=-1)
 
     if max_num_boxes > 0:
