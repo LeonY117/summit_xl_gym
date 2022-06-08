@@ -1,0 +1,6 @@
+[default]
+project = local_namo
+entity = leonyao
+base_url = https://api.wandb.ai
+mode = online
+

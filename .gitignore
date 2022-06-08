@@ -1,5 +1,4 @@
 runs/
 tasks/pycache
-scripts/test_tensor.py
-wandb/
 tasks/__pycache__
+scripts/test_tensor.py
