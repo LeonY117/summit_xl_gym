@@ -1,33 +1,37 @@
 room_name: sqauare_room_0
-room_width: 10
-room_height: 10
+room_width: 15
+room_height: 15
 
 wall_cfg:
   wall_height: 2.0
   wall_thickness: 0.1
   walls:
     - name: left_bound
-      pos_x: -5
+      pos_x: -7.5
       pos_y: 0
-      length: 10
+      length: 15
       orientation: vertical
     - name: right_bound
-      pos_x: 5
+      pos_x: 7.5
       pos_y: 0
-      length: 10
+      length: 15
       orientation: vertical
     - name: top_bound
       pos_x: 0
-      pos_y: 5
-      length: 10
+      pos_y: 7.5
+      length: 15
       orientation: horizontal
     - name: bottom_bound
       pos_x: 0
-      pos_y: -5
-      length: 10
+      pos_y: -7.5
+      length: 15
       orientation: horizontal
-goal_cfg:
+summit_goal_cfg:
   goal_x: 3.0
+  goal_y: 3.0
+  goal_radius: 1
+box_goal_cfg:
+  goal_x: -3.0
   goal_y: 3.0
   goal_radius: 2
 box_cfg:
