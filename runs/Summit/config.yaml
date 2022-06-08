@@ -1,22 +1,24 @@
 task:
-  name: Summit_04
+  name: Summit_05
   physics_engine: ${..physics_engine}
   env:
     numEnvs: ${resolve_default:4096,${...num_envs}}
-    envSpacing: 11
-    episodeLength: 500
+    envSpacing: 16
+    episodeLength: 200
     enableDebugVis: true
     useHistory: true
     numHistory: 5
     clipActions: 1.0
     powerScale: 4.0
     controlFrequencyInv: 60
-    progressWeight: 0
-    distWeight: 0
+    progressWeight: 0.5
+    distWeight: 0.1
     reachedGoalWeight: 0
-    boxProgressWeight: 0.1
+    boxProgressWeight: 8
     boxDistWeight: 0.1
-    boxReachedGoalWeight: 10
+    boxReachedGoalWeight: 20
+    boxInZoneWeight: 10
+    boxFailedReachedGoalWeight: 0
     timeWeight: 0.1
     dofOffsetWeight: 0.05
     plane:
@@ -25,28 +27,36 @@ task:
       restitution: 0.0
     asset:
       assetFileName: summit_xl_description/robots/summit_xls_std_fixed_camera.urdf
-    room_config: square_room_0.yaml
+    room_config: square_room_1.yaml
     useBoxes: true
     randomize_box:
-      randomize_pos: false
+      randomize_pos: true
       x_bound:
-      - -0.5
-      - 1
+      - -0.9
+      - 0.9
       y_bound:
-      - -1
-      - 1
+      - -0.9
+      - 0.9
       randomize_rot: true
     randomize_summit:
       randomize_pos: true
       x_bound:
       - -1
-      - -0.5
+      - 1
       y_bound:
       - -1
       - 1
-      whole_map_start_prob: 0.5
+      whole_map_start_prob: 0.8
       randomize_rot: true
-    randomize_goal:
+    randomize_summit_goal:
+      randomize_pos: true
+      x_bound:
+      - -1
+      - 1
+      y_bound:
+      - -1
+      - 1
+    randomize_box_goal:
       randomize_pos: true
       x_bound:
       - -1
@@ -177,8 +187,8 @@ train:
       bounds_loss_coef: 0.0001
 task_name: ${task.name}
 experiment: ''
-num_envs: ''
-seed: 3860
+num_envs: 16
+seed: 1155
 torch_deterministic: false
 max_iterations: ''
 physics_engine: physx
