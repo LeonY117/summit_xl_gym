@@ -17,8 +17,8 @@ import wandb
 from .base.vec_task import VecTask  # pre-defined abstract class
 from .helper_1 import *
 
-wandb.init(project="Summit_04", config={
-           "room": "square_r0"}, entity="leonyao", mode="online")
+wandb.init(project="box_pushing_task", config={
+           "room": "square_r0"}, entity="leonyao", mode="disabled")
 
 
 class Summit(VecTask):
