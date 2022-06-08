@@ -7,7 +7,7 @@ physics_engine: ${..physics_engine}
 env:
   #  numEnvs: ${...num_envs}
   numEnvs: ${resolve_default:4096,${...num_envs}}
-  envSpacing: 11
+  envSpacing: 16
   episodeLength: 200
   enableDebugVis: True
 
@@ -20,13 +20,20 @@ env:
   controlFrequencyInv: 60 # 1 Hz
 
   # reward & cost parameters
-  progressWeight: 0
-  distWeight: 0
+  # progressWeight: 0.25
+  # distWeight: 0.1
+  # reachedGoalWeight: 10
+
+  progressWeight: 0.5
+  distWeight: 0.1
   reachedGoalWeight: 0
 
-  boxProgressWeight: 0.1
+  boxProgressWeight: 8
   boxDistWeight: 0.1
-  boxReachedGoalWeight: 10
+  boxReachedGoalWeight: 20
+
+  boxInZoneWeight: 10
+  boxFailedReachedGoalWeight: 0
 
   timeWeight: 0.1
   dofOffsetWeight: 0.05
@@ -39,26 +46,31 @@ env:
   asset:
     assetFileName: "summit_xl_description/robots/summit_xls_std_fixed_camera.urdf"
 
-  room_config: "square_room_0.yaml"
+  room_config: "square_room_1.yaml"
 
   # boxes starting pos and rot
   useBoxes: True
   randomize_box:
-    randomize_pos: False
-    x_bound: [-0.5, 1]
-    y_bound: [-1, 1]
+    randomize_pos: True
+    x_bound: [-0.9, 0.9]
+    y_bound: [-0.9, 0.9]
     randomize_rot: True
 
   # summit starting pos and rot
   randomize_summit:
     randomize_pos: True
-    x_bound: [-1, -0.5]
+    x_bound: [-1, 1]
     y_bound: [-1, 1]
-    whole_map_start_prob: 0.5
+    whole_map_start_prob: 0.8
     randomize_rot: True
 
   # goal position
-  randomize_goal:
+  randomize_summit_goal:
+    randomize_pos: True
+    x_bound: [-1, 1]
+    y_bound: [-1, 1]
+
+  randomize_box_goal:
     randomize_pos: True
     x_bound: [-1, 1]
     y_bound: [-1, 1]
