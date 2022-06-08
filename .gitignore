@@ -2,3 +2,4 @@ runs/
 tasks/pycache
 scripts/test_tensor.py
 wandb/
+tasks/__pycache__
