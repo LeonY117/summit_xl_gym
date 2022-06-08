@@ -1,6 +1,9 @@
 # version 4
 # this class is designed for the square room setting where the objective is to push the box into a specified location
 
+# to run this script in test mode:
+# python3 train.py task=Summit_04 test=True checkpoint=runs/SquareRoom/nn/lastSummit.pth num_envs=16
+
 from typing import Dict, Any, Tuple
 from isaacgym import gymtorch
 from isaacgym import gymapi

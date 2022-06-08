@@ -1,5 +1,5 @@
-# version 3 of summit xl steel class
-# update to state space: add walls, add history
+# forked version of summit_03
+# observation does not include dof velocities
 
 from typing import Tuple
 from isaacgym import gymtorch

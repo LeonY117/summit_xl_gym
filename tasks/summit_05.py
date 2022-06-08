@@ -1,5 +1,8 @@
 # version 5
-# the objective is to push the box and reach target
+# Rearrangement task: the objective is to push the box and reach target
+
+# to run this file in test mode:
+# python3 train.py task=Summit_05 test=True checkpoint=runs/Dual_Obj/nn/Summit.pth num_envs=16
 
 from typing import Dict, Any, Tuple
 from isaacgym import gymtorch

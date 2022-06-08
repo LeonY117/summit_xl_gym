@@ -1,6 +1,9 @@
 # version 3 of summit xl steel class
 # update to state space: add walls, add history
 
+# To run this file in test mode:
+# python3 train.py task=Summit_03 test=True checkpoint=runs/Summit3_r2_h5_dof/nn/Summit.pth num_envs=16
+
 from typing import Tuple
 from isaacgym import gymtorch
 from isaacgym import gymapi
@@ -596,7 +599,7 @@ class Summit(VecTask):
             self.reset_idx(env_ids)
 
         self.compute_observations()
-        self.compute_reward(self.actions)
+        # self.compute_reward(self.actions)
         self.t += 1
         # TODO: refactor this into compute_observations
         offset = torch.mean(torch.norm(
@@ -681,7 +684,7 @@ def compute_summit_reward(obs_buf, progress_buf, reset_buf, max_episode_lengths,
 # refactor code to here if need expensive computations
 def compute_summit_observations(obs_buf, potentials, prev_potentials, num_envs, max_num_boxes, dt,
                                 goal_pos, goal_radius, map_coords, summit_pos_tensor,
-                                summit_vel_tensor, summit_rot_tensor, summit_ang_vel_tensor, 
+                                summit_vel_tensor, summit_rot_tensor, summit_ang_vel_tensor,
                                 dof_vel, box_state_tensor):
     # type: (Tensor, Tensor, Tensor, int, int, float, Tensor, float, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor,) -> Tuple[Tensor, Tensor, Tensor, Tensor, Tensor]
     # update internal states
