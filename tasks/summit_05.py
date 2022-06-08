@@ -262,6 +262,8 @@ class Summit(VecTask):
 
         self.reached_target = torch.zeros_like(self.potentials)
         self.box_reached_target = torch.zeros_like(self.potentials)
+        # TODO: update to boxes_in_zone
+        self.box_in_zone = torch.zeros_like(self.potentials)
 
         # Create placeholder variables for wandb
         self.reward_log = 0
@@ -512,11 +514,11 @@ class Summit(VecTask):
 
     def compute_reward(self, actions):
 
-        self.rew_buf[:], self.reset_buf[:], logs = compute_summit_reward(
+        self.rew_buf[:], self.reset_buf[:], self.box_in_zone[:], logs = compute_summit_reward(
             self.obs_buf, self.progress_buf, self.reset_buf, self.max_episode_lengths,
             self.potentials, self.prev_potentials, self.dist_to_target, self.reached_target,
             self.box_potentials, self.prev_box_potentials, self.box_dist_to_target,
-            self.box_reached_target, self.max_dist, self.vel_offset, self.power_scale, self.weights)
+            self.box_reached_target, self.box_in_zone, self.max_dist, self.vel_offset, self.power_scale, self.weights)
 
         num_reached_goal = logs['numReachedGoal']
         num_fail_reach_goal = logs['numFailReachedGoal']
@@ -703,6 +705,7 @@ class Summit(VecTask):
         self.reset_buf[env_ids] = 0
         self.reached_target[env_ids] = 0
         self.box_reached_target[env_ids] = 0
+        self.box_in_zone[env_ids] = 0
 
     def pre_physics_step(self, actions):
         # TAKE ACTION
@@ -791,11 +794,14 @@ def gen_keypoints(pose: torch.Tensor, num_keypoints: int = 8, size: Tuple[float,
 @ torch.jit.script
 def compute_summit_reward(obs_buf, progress_buf, reset_buf, max_episode_lengths, potentials, prev_potentials,
                           dist_to_target, reached_target, box_potentials, prev_box_potentials, box_dist_to_target,
-                          box_reached_target, max_dist, vel_offset, power_scale, weights):
-    # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, float, Tensor, float, Dict[str, float]) -> Tuple[Tensor, Tensor, Dict[str, Tensor]]
+                          box_reached_target, box_in_zone, max_dist, vel_offset, power_scale, weights):
+    # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, float, Tensor, float, Dict[str, float]) -> Tuple[Tensor, Tensor, Tensor,  Dict[str, Tensor]]
     # euclidian distance to goal
     progress_reward = (potentials - prev_potentials)/(power_scale*0.127) * \
         weights['progressWeight']
+
+    # do not give progress reward if goal is not reached
+    progress_reward = progress_reward * box_reached_target
     dist_reward = ((max_dist - dist_to_target) /
                    max_dist) * weights['distWeight']
 
@@ -806,7 +812,14 @@ def compute_summit_reward(obs_buf, progress_buf, reset_buf, max_episode_lengths,
 
     # reached target reward
     reached_goal_reward = reached_target * weights['reachedGoalWeight']
-    box_in_zone_reward = box_reached_target * weights['boxInZoneWeight']
+
+    # box in zone reward
+    # only reward to boxes that have not yet been given the zone reward => only given once per episode
+    box_in_zone_reward = (1 - box_in_zone) * \
+        box_reached_target * weights['boxInZoneWeight']
+    # update box_in_zone
+    box_in_zone = torch.where(box_reached_target == 1,
+                              torch.ones_like(box_reached_target), box_in_zone)
 
     # action cost
     # optional: additional penalty for pushing boxes
@@ -866,7 +879,7 @@ def compute_summit_reward(obs_buf, progress_buf, reset_buf, max_episode_lengths,
         'boxFailedReachedGoalCost': torch.mean(box_failed_reached_goal_cost),
         'boxInZoneRew': torch.mean(box_in_zone_reward)}
 
-    return total_reward, reset, logs
+    return total_reward, reset, box_in_zone, logs
 
 
 @ torch.jit.script
