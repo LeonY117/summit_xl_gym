@@ -21,7 +21,7 @@ from .base.vec_task import VecTask  # pre-defined abstract class
 from .helper_5 import *
 
 run = wandb.init(project="box_pushing_task2", config={
-    "room": "square_r1"}, entity="leonyao", mode="offline")
+    "room": "square_r1"}, entity="leonyao", mode="disabled")
 
 
 class Summit(VecTask):

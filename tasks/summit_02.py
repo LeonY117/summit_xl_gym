@@ -21,7 +21,8 @@ import wandb
 from .base.vec_task import VecTask  # pre-defined abstract class
 from .helper_1 import *
 
-wandb.init(project="Summit", config={"room": "r2"}, entity="leonyao")
+wandb.init(project="Summit", config={
+           "room": "r2"}, entity="leonyao", mode='disabled')
 
 
 class Summit(VecTask):
@@ -29,7 +30,7 @@ class Summit(VecTask):
     def __init__(self, cfg, sim_device, graphics_device_id, headless):
         """
         Initialises the class.
- 
+
         Args:
            config: config dictionary for the environment.
            sim_device: the device to simulate physics on. eg. 'cuda:0' or 'cpu'
