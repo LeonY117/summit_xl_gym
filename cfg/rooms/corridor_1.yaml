@@ -1,0 +1,47 @@
+room_name: corridor_1
+room_width: 3.2
+room_height: 8
+
+wall_cfg:
+  wall_height: 2.0
+  wall_thickness: 0.1
+  walls:
+    - name: left_bound
+      pos_x: -1.6
+      pos_y: 0
+      length: 8
+      orientation: vertical
+    - name: right_bound
+      pos_x: 1.6
+      pos_y: 0
+      length: 8
+      orientation: vertical
+    - name: top_bound
+      pos_x: 0
+      pos_y: 4
+      length: 3.2
+      orientation: horizontal
+    - name: bottom_bound
+      pos_x: 0
+      pos_y: -4
+      length: 3.2
+      orientation: horizontal
+summit_goal_cfg:
+  goal_x: 0.0
+  goal_y: 3.0
+  goal_radius: 0.5
+use_box_goal: false
+box_goal_cfg:
+  goal_x: 0.0
+  goal_y: 0.0
+  goal_radius: 1
+box_cfg:
+  box_width: 1
+  boxes:
+    - pos_x: 0.76
+      pos_y: 0
+    - pos_x: -0.76
+      pos_y: 0
+summit_cfg:
+  pos_x: 0
+  pos_y: -3
