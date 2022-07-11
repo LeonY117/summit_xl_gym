@@ -5,7 +5,7 @@ params:
     name: a2c_continuous
 
   model:
-    name: continuous_a2c_logstd
+    name: custom_a2c
 
   # network:
   #   name: actor_critic
@@ -46,39 +46,40 @@ params:
           name: const_initializer
           val: 0
         fixed_sigma: True
-    mlp: 
+    mlp:
       units: [256, 128]
-        activation: elu
-        d2rl: False
+      activation: elu
+      d2rl: False
 
-        initializer:
-          name: default
-        regularizer:
-          name: None
+      initializer:
+        name: default
+      regularizer:
+        name: None
     cnn:
       type: conv2d
+      grid_size: 64
       initializer:
-          name: default
+        name: default
       regularizer:
-        name: 'None'
+        name: "None"
       activation: relu
       convs:
         - filters: 4
           kernel_size: 5
-          stride: 1
+          strides: 1
           padding: 0
-          max_pool_stride: 2
+          max_pool_strides: 2
         - filters: 8
           kernel_size: 5
-          stride: 1
+          strides: 1
           padding: 0
-          max_pool_stride: 2
+          max_pool_strides: 2
         - filters: 16
           kernel_size: 3
-          stride: 1
+          strides: 1
           padding: 0
-          max_pool_stride: 2
-    fused_mlp: 
+          max_pool_strides: 2
+    fusion_mlp:
       units: [128, 64]
       activation: elu
       d2rl: False
@@ -86,7 +87,7 @@ params:
         name: default
       regularizer:
         name: None
-                    
+
   load_checkpoint: ${if:${...checkpoint},True,False} # flag which sets whether to load the checkpoint
   load_path: ${...checkpoint} # path to the checkpoint to load
 
@@ -119,7 +120,7 @@ params:
     truncate_grads: False
     e_clip: 0.2
     horizon_length: 16
-    minibatch_size: 32768
+    minibatch_size: 8192 # 32768
     mini_epochs: 4
     critic_coef: 2
     clip_value: True
