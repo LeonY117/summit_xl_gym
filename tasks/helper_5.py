@@ -15,20 +15,24 @@ def load_room_from_config(room_dict):
         box_goal_pos: list, representing coordinate of target position for the robot
     '''
 
-    wall_cfg, summit_goal_cfg, box_goal_cfg = room_dict[
-        'wall_cfg'], room_dict['summit_goal_cfg'], room_dict['box_goal_cfg']
+    wall_cfg, summit_goal_cfg = room_dict[
+        'wall_cfg'], room_dict['summit_goal_cfg']
+    box_goal_cfg = room_dict['box_goal_cfg']
 
     summit_goal_x = summit_goal_cfg['goal_x']
     summit_goal_y = summit_goal_cfg['goal_y']
     summit_goal_z = summit_goal_cfg['goal_z'] if 'goal_z' in summit_goal_cfg else 0.
 
-    box_goal_x = box_goal_cfg['goal_x']
-    box_goal_y = box_goal_cfg['goal_y']
-    box_goal_z = box_goal_cfg['goal_z'] if 'goal_z' in box_goal_cfg else 0.
-
     wall_coords = map_to_coord(wall_cfg['walls'])
     summit_goal_pos = [summit_goal_x, summit_goal_y, summit_goal_z]
-    box_goal_pos = [box_goal_x, box_goal_y, box_goal_z]
+
+    if room_dict['use_box_goal']:
+        box_goal_x = box_goal_cfg['goal_x']
+        box_goal_y = box_goal_cfg['goal_y']
+        box_goal_z = box_goal_cfg['goal_z'] if 'goal_z' in box_goal_cfg else 0.
+        box_goal_pos = [box_goal_x, box_goal_y, box_goal_z]
+    else:
+        box_goal_pos = summit_goal_pos
 
     return wall_coords, summit_goal_pos, box_goal_pos
 
