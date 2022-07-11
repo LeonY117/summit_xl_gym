@@ -51,6 +51,9 @@ from isaacgymenvs.learning import amp_players
 from isaacgymenvs.learning import amp_models
 from isaacgymenvs.learning import amp_network_builder
 
+from learning import custom_network_builder
+from learning import custom_model
+
 
 # OmegaConf & Hydra Config
 
@@ -112,6 +115,10 @@ def launch_rlg_hydra(cfg: DictConfig):
             'continuous_amp', lambda network, **kwargs: amp_models.ModelAMPContinuous(network))
         runner.model_builder.network_factory.register_builder(
             'amp', lambda **kwargs: amp_network_builder.AMPBuilder())
+        runner.model_builder.model_factory.register_builder(
+            'custom_a2c', lambda network, **kwargs: custom_model.CustomA2C(network))
+        runner.model_builder.network_factory.register_builder(
+            'custom_net', lambda **kwargs: custom_network_builder.customNetBuilder())
 
         return runner
 
