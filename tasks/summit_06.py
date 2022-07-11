@@ -1,6 +1,8 @@
-# version 6
-# Local NAMO task
+# version 6: Local NAMO task
 # refactored wandb
+# TODO:
+# add occupancy grid to the observation space
+# update NN configurations
 
 from typing import Dict, Any, Tuple
 from isaacgym import gymtorch
@@ -18,9 +20,6 @@ import wandb
 from .base.vec_task import VecTask  # pre-defined abstract class
 from .helper_5 import *
 
-wandb.init(project="local_namo",
-           entity="leonyao", config={"room": "corridor_room"},  mode="online")
-
 
 class Summit(VecTask):
 
@@ -34,6 +33,8 @@ class Summit(VecTask):
            graphics_device_id: the device ID to render with.
            headless: Set to False to disable viewer rendering.
         """
+        wandb.init(project="local_namo",
+                   entity="leonyao", config={"room": "corridor_room"},  mode="disabled")
 
         # run = wandb.init(project="local_namo", config={'room': 'corridor_room'},
         #                  entity="leonyao")
@@ -65,9 +66,10 @@ class Summit(VecTask):
         # 3 summit roll, pitch, yaw
         # 3 summit ang vel
         print('NUMBER OF HISTORY={}'.format(self.cfg['env']['numHistory']))
-        self.cfg["env"]["numObservations"] = numObservations * \
-            self.cfg["env"]["useHistory"] * \
-            self.cfg["env"]["numHistory"]  # 65 * h
+        # self.cfg["env"]["numObservations"] = numObservations * \
+        #     self.cfg["env"]["useHistory"] * \
+        #     self.cfg["env"]["numHistory"]  # 65 * h
+        self.cfg["env"]["numObservations"] = 4396
         self.cfg["env"]["numActions"] = 2  # left and right wheel speed
 
         # Load variables from main config file:
@@ -980,6 +982,11 @@ def compute_summit_observations(obs_buf, potentials, prev_potentials, num_envs, 
     i = max(0, num_history - 2)
     obs_buf[:, (i+1)*num_obs:(i+2)*num_obs] = curr_obs_buf[:]
 
+    # obs_buf = torch.ones_like(obs_buf)
+
     # obs_buf[:, (i+2)*num_obs:] = wall_bounds
 
     return obs_buf, reached_target, potentials, prev_potentials, dist_to_target, box_reached_target, box_potentials, prev_box_potentials, box_dist_to_target
+
+# TODO
+# occ grid functions
