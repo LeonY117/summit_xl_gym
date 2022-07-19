@@ -1,8 +1,11 @@
 # version 6: Local NAMO task
 # refactored wandb
 # TODO:
-# add occupancy grid to the observation space
-# update NN configurations
+# add occupancy grid to the observation space (done)
+# Implement functions to compute occ grid (done)
+# update NN configurations (done)
+# add buffer for extra boxes
+# make maps
 
 from typing import Dict, Any, Tuple
 from isaacgym import gymtorch
@@ -11,6 +14,7 @@ from isaacgym.gymtorch import *
 from isaacgymenvs.utils.torch_jit_utils import *
 
 import numpy as np
+import matplotlib.pyplot as plt
 import random
 import yaml
 import os
@@ -60,6 +64,7 @@ class Summit(VecTask):
 
         self.max_episode_length = self.cfg["env"]["episodeLength"]
 
+        self.grid_size = self.cfg['env']['gridSize']
         numObservations = 2 * self.num_goals + 10 + 24 * self.max_num_boxes
         # 2 summit pos
         # 2 summit vel
@@ -69,7 +74,9 @@ class Summit(VecTask):
         # self.cfg["env"]["numObservations"] = numObservations * \
         #     self.cfg["env"]["useHistory"] * \
         #     self.cfg["env"]["numHistory"]  # 65 * h
-        self.cfg["env"]["numObservations"] = 4396
+        self.cfg["env"]["numObservations"] = self.grid_size ** 2 + \
+            numObservations * self.cfg["env"]["numHistory"]
+
         self.cfg["env"]["numActions"] = 2  # left and right wheel speed
 
         # Load variables from main config file:
@@ -212,6 +219,71 @@ class Summit(VecTask):
             self.dof_pos, device=self.device, dtype=torch.float)
         self.initial_dof_vel = torch.zeros_like(
             self.dof_vel, device=self.device, dtype=torch.float)
+
+        # initialize data for grids
+        self.Px = torch.tensor(list(range(self.grid_size)), device=self.device).unsqueeze(
+            dim=-1).unsqueeze(dim=-1).repeat(1, 1, 1, 1)
+        self.Py = torch.transpose(self.Px, 1, 2)
+
+        # SUMMIT
+        self.summit_obj_state = torch.ones(
+            (self.num_envs, 1, 5), device=self.device, dtype=torch.float)
+        self.summit_vertices = torch.ones(
+            (self.num_envs, 1, 4, 2), device=self.device, dtype=torch.float)
+        self.rotated_summit_vertices = torch.ones_like(self.summit_vertices)
+        self.summit_occ_cells = torch.ones(
+            (self.num_envs, self.grid_size, self.grid_size), device=self.device, dtype=torch.long)
+
+        # WALLS
+        self.walls_obj_state = torch.ones(
+            (self.num_envs, self.num_walls, 5), device=self.device, dtype=torch.float)
+        self.walls_vertices = torch.ones(
+            (self.num_envs, self.num_walls, 4, 2), device=self.device, dtype=torch.float)
+        self.rotated_walls_vertices = torch.ones_like(self.walls_vertices)
+        self.walls_occ_cells = torch.ones(
+            (self.num_envs, self.grid_size, self.grid_size), device=self.device, dtype=torch.long)
+
+        # OBSTACLES
+        self.boxes_obj_state = torch.ones(
+            (self.num_envs, self.max_num_boxes, 5), device=self.device, dtype=torch.float)
+        self.boxes_vertices = torch.ones(
+            (self.num_envs, self.max_num_boxes, 4, 2), device=self.device, dtype=torch.float)
+        self.rotated_boxes_vertices = torch.ones_like(self.boxes_vertices)
+        self.obstacles_occ_cells = torch.ones(
+            (self.num_envs, self.grid_size, self.grid_size), device=self.device, dtype=torch.long)
+
+        # perform one update from initial state
+        self.summit_obj_state = get_obj_states(
+            self.actor_root_state_tensor, 'summit', self.obj_description, self.summit_obj_state)
+        self.summit_vertices, self.rotated_summit_vertices = get_vertices(
+            self.summit_obj_state, self.summit_vertices, self.rotated_summit_vertices, n=self.grid_size)
+        self.summit_occ_cells = get_occ_cells(
+            self.Px, self.Py, self.summit_vertices, self.rotated_summit_vertices)
+
+        self.walls_obj_state = get_obj_states(
+            self.actor_root_state_tensor, 'walls', self.obj_description, self.walls_obj_state)
+        self.walls_vertices, self.rotated_walls_vertices = get_vertices(
+            self.walls_obj_state, self.walls_vertices, self.rotated_walls_vertices, n=self.grid_size)
+        self.walls_occ_cells = get_occ_cells(
+            self.Px, self.Py, self.walls_vertices, self.rotated_walls_vertices)
+
+        self.boxes_obj_state = get_obj_states(
+            self.actor_root_state_tensor, 'boxes', self.obj_description, self.boxes_obj_state)
+        self.boxes_vertices, self.rotated_boxes_vertices = get_vertices(
+            self.boxes_obj_state, self.boxes_vertices, self.rotated_boxes_vertices, n=self.grid_size)
+        self.boxes_occ_cells = get_occ_cells(
+            self.Px, self.Py, self.boxes_vertices, self.rotated_boxes_vertices)
+
+        self.occ_grid = self.boxes_occ_cells * 2
+
+        self.occ_grid = torch.where(self.summit_occ_cells > 0,
+                                    self.summit_occ_cells * 3, self.occ_grid)
+        self.occ_grid = torch.where(self.walls_occ_cells > 0,
+                                    self.walls_occ_cells, self.occ_grid)
+
+        # temp_grid = self.walls_occ_cells.cpu().detach().numpy()
+        # plt.imshow(temp_grid[0])
+        # plt.savefig('test_img.png')
 
         # initialize some data used later on
         self.up_vec = to_torch(get_axis_params(
@@ -439,6 +511,19 @@ class Summit(VecTask):
         self.actor_handles = []
         self.box_handles = []
         self.wall_handles = []
+        self.obj_description = {'summit': [[1, 0.8]], 'walls': [], 'boxes': []}
+        for wall in room_walls:
+            self.obj_description['walls'].append(
+                [wall['length'], 0.25])
+        for box in range(self.max_num_boxes):
+            self.obj_description['boxes'].append(
+                [self.box_width, self.box_width])
+        self.obj_description['summit'] = to_torch(
+            self.obj_description['summit'])
+        self.obj_description['walls'] = to_torch(
+            self.obj_description['walls'])
+        self.obj_description['boxes'] = to_torch(
+            self.obj_description['boxes'])
 
         for i in range(self.num_envs):
             env = self.gym.create_env(self.sim, lower, upper, num_per_row)
@@ -568,16 +653,42 @@ class Summit(VecTask):
         self.box_failed_reached_goal_rew_log = logs['boxFailedReachedGoalCost']
         self.box_in_zone_rew_log = logs['boxInZoneRew']
 
+    def compute_occ_grid(self):
+        # jit functions
+        self.summit_obj_state = get_obj_states(
+            self.actor_root_state_tensor, 'summit', self.obj_description, self.summit_obj_state)
+        self.summit_vertices, self.rotated_summit_vertices = get_vertices(
+            self.summit_obj_state, self.summit_vertices, self.rotated_summit_vertices, n=self.grid_size)
+        self.summit_occ_cells = get_occ_cells(
+            self.Px, self.Py, self.summit_vertices, self.rotated_summit_vertices)
+
+        self.boxes_obj_state = get_obj_states(
+            self.actor_root_state_tensor, 'boxes', self.obj_description, self.boxes_obj_state)
+        self.boxes_vertices, self.rotated_boxes_vertices = get_vertices(
+            self.boxes_obj_state, self.boxes_vertices, self.rotated_boxes_vertices, n=self.grid_size)
+        self.boxes_occ_cells = get_occ_cells(
+            self.Px, self.Py, self.boxes_vertices, self.rotated_boxes_vertices)
+
+        # can pass this into a jit function if needed
+        self.occ_grid = compute_occ_grid_mask(
+            self.summit_occ_cells, self.boxes_occ_cells, self.walls_occ_cells)
+
+        temp_grid = self.occ_grid.cpu().detach().numpy()
+
+        return
+
     def compute_observations(self):
         self.gym.refresh_dof_state_tensor(self.sim)
         self.gym.refresh_actor_root_state_tensor(self.sim)
         # self.gym.refresh_net_contact_force_tensor(self.sim)
 
+        self.compute_occ_grid()
+
         self.obs_buf[:], self.reached_target[:], self.potentials[:], self.prev_potentials[:], self.dist_to_target, self.box_reached_target[:], self.box_potentials[:], self.prev_box_potentials[:], self.box_dist_to_target[:] = compute_summit_observations(
             self.obs_buf[:], self.potentials, self.prev_potentials, self.num_envs, self.max_num_boxes, self.control_dt,
             self.box_goal_pos_tensor, self.box_goal_radius, self.summit_goal_pos_tensor, self.summit_goal_radius,
             self.wall_coords, self.summit_pos_tensor, self.summit_vel_tensor, self.summit_rot_tensor, self.summit_ang_vel_tensor,
-            self.target_velocities, self.dof_vel, self.use_box_goal, self.box_state_tensor, self.box_potentials, self.prev_box_potentials)
+            self.target_velocities, self.dof_vel, self.use_box_goal, self.box_state_tensor, self.box_potentials, self.prev_box_potentials, self.occ_grid)
 
     def reset_idx(self, env_ids):
         env_ids_int32 = env_ids.to(dtype=torch.int32)
@@ -829,7 +940,7 @@ def compute_summit_reward(obs_buf, progress_buf, reset_buf, max_episode_lengths,
         weights['progressWeight']
 
     # do not give progress reward if goal is not reached
-    progress_reward = progress_reward * box_reached_target
+    # progress_reward = progress_reward * box_reached_target
     dist_reward = ((max_dist - dist_to_target) /
                    max_dist) * weights['distWeight']
 
@@ -910,13 +1021,13 @@ def compute_summit_reward(obs_buf, progress_buf, reset_buf, max_episode_lengths,
     return total_reward, reset, box_in_zone, logs
 
 
-@ torch.jit.script
 # refactor code to here if need expensive computations
+@ torch.jit.script
 def compute_summit_observations(obs_buf, potentials, prev_potentials, num_envs, max_num_boxes, dt,
                                 box_goal_pos, box_goal_radius, summit_goal_pos, summit_goal_radius, map_coords, summit_pos_tensor,
                                 summit_vel_tensor, summit_rot_tensor, summit_ang_vel_tensor,
-                                target_velocities, dof_vel, use_box_goal, box_state_tensor, box_potentials, prev_box_potentials):
-    # type: (Tensor, Tensor, Tensor, int, int, float, Tensor, float, Tensor, float, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, bool, Tensor, Tensor, Tensor) -> Tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]
+                                target_velocities, dof_vel, use_box_goal, box_state_tensor, box_potentials, prev_box_potentials, occ_grid):
+    # type: (Tensor, Tensor, Tensor, int, int, float, Tensor, float, Tensor, float, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, bool, Tensor, Tensor, Tensor, Tensor) -> Tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]
 
     # update internal states
     dist_to_target = summit_goal_pos - summit_pos_tensor
@@ -958,7 +1069,7 @@ def compute_summit_observations(obs_buf, potentials, prev_potentials, num_envs, 
     wall_bounds = map_coords
 
     # obs_buf for curr time step
-    curr_obs_buf = torch.cat((summit_goal_pos, box_goal_pos, summit_pos, summit_vel, summit_rot_roll.unsqueeze(
+    curr_obs_buf = torch.cat((summit_goal_pos, summit_pos, summit_vel, summit_rot_roll.unsqueeze(
         -1),  summit_rot_pitch.unsqueeze(-1), summit_rot_yaw.unsqueeze(-1), summit_ang_vel), dim=-1)
 
     if max_num_boxes > 0:
@@ -975,18 +1086,156 @@ def compute_summit_observations(obs_buf, potentials, prev_potentials, num_envs, 
 
     # add obs_buf to history:
     num_obs = curr_obs_buf.shape[1]
-    num_history = obs_buf.shape[1]//num_obs
+    grid_size = occ_grid.shape[1]
+    grid_buffer = grid_size * grid_size
+    num_history = int((obs_buf.shape[1]-grid_buffer)//num_obs)
+
     for i in range(num_history-1):
-        obs_buf[:, i*num_obs:(i+1)*num_obs] = obs_buf[:, (i+1)
-                                                      * num_obs:(i+2)*num_obs]
+        obs_buf[:, grid_buffer + i*num_obs:grid_buffer +
+                (i+1)*num_obs] = obs_buf[:, grid_buffer + (i+1) * num_obs:grid_buffer + (i+2)*num_obs]
     i = max(0, num_history - 2)
-    obs_buf[:, (i+1)*num_obs:(i+2)*num_obs] = curr_obs_buf[:]
+    obs_buf[:, grid_buffer + (i+1)*num_obs:grid_buffer +
+            (i+2)*num_obs] = curr_obs_buf[:]
 
-    # obs_buf = torch.ones_like(obs_buf)
-
+    obs_buf[:, :grid_buffer] = torch.flatten(occ_grid, 1, 2)
     # obs_buf[:, (i+2)*num_obs:] = wall_bounds
 
     return obs_buf, reached_target, potentials, prev_potentials, dist_to_target, box_reached_target, box_potentials, prev_box_potentials, box_dist_to_target
 
-# TODO
-# occ grid functions
+# TODO: refactor this function into the one below, we don't NEED to store the intermediate tensor obj_state
+
+
+@ torch.jit.script
+def get_obj_states(actor_root_state, obj_name, obj_descriptions, out):
+    # type: (Tensor, str, Dict[str, Tensor], Tensor) -> Tensor
+    '''
+    Extracts relevent information from actor_root_state
+
+    Args
+    -----------------------
+    actor_root_state: (num_envs x num_actors x 13) 
+    obj_name:         either 'walls' 'boxes' or 'summit'
+    Dict:             dict containing object width & height, i.e. 'walls': [[1, 5], [5, 1]]
+
+    Returns
+    -----------------------
+    out:              shape (num_envs x num_objects x 5) 
+    '''
+
+    if obj_name not in ['walls', 'boxes', 'summit']:
+        print('INVALID OBJECT NAME')
+
+    l, r = 0, 1
+    if obj_name == 'walls' or obj_name == 'boxes':
+        l = 1
+        r += len(obj_descriptions['walls'])
+    if obj_name == 'boxes':
+        l += len(obj_descriptions['walls'])
+        r += len(obj_descriptions['boxes'])
+
+    x_offset, y_offset = 5, 5
+
+    out[:, :, 0] = actor_root_state[:, l:r, 0] + x_offset  # pos x
+    out[:, :, 1] = actor_root_state[:, l:r, 1] + y_offset  # pos y
+    out[:, :, 2] = obj_descriptions[obj_name][:, 0]  # width
+    out[:, :, 3] = obj_descriptions[obj_name][:, 1]  # height
+
+    # do a for loop here since get_euler_xyz only supports one object
+    i = 0
+    while l < r:
+        _, _, out[:, i, 4] = get_euler_xyz(actor_root_state[:, l, 3:7])
+        i += 1
+        l += 1
+    return out
+
+
+@ torch.jit.script
+def get_vertices(obj_state, obj_vertices, obj_rot_vertices, room_size=10, n=64):
+    # type: (Tensor, Tensor, Tensor, int, int) -> Tuple[Tensor, Tensor]
+    '''
+    Takes in information about rectangular objects in the environments and returns the vertices
+
+    Args
+    -----------------------
+    obj_state:        object description in the environments, with shape (num_envs x num_objects x 5) 
+    obj_vertices:     tensor buffer for the vertices with shape (num_envs x num_objects x 4 x 2) 
+    obj_rot_vertices: tensor buffer for the rotated vertices with shape (num_envs x num_objects x 4 x 2) 
+    room_size:        room size in meters
+    n:                grid size
+
+    Returns
+    -----------------------
+    obj_vertices:     shape (num_envs x num_objects x 4 x 2) 
+    obj_rot_vertices: shape (num_envs x num_objects x 4 x 2) 
+    '''
+    w = obj_state[:, :, 2] * (n/room_size)
+    h = obj_state[:, :, 3] * (n/room_size)
+    d = ((w/2)**2 + (h/2)**2)**0.5
+    num_obj = obj_state.shape[1]
+
+    # only these need to be updated - object shape doesn't change
+    x_pos = obj_state[:, :, 0] * (n/room_size)
+    y_pos = obj_state[:, :, 1] * (n/room_size)
+    theta = obj_state[:, :, 4] + np.pi/2
+
+    obj_vertices[:, :, 0, 0] = torch.sin(torch.arctan(w/h) + theta) * d + x_pos
+    obj_vertices[:, :, 0, 1] = torch.cos(torch.arctan(w/h) + theta) * d + y_pos
+    obj_vertices[:, :, 1, 0] = torch.sin(
+        np.pi - torch.arctan(w/h) + theta) * d + x_pos
+    obj_vertices[:, :, 1, 1] = torch.cos(
+        np.pi - torch.arctan(w/h) + theta) * d + y_pos
+    obj_vertices[:, :, 2, 0] = torch.sin(
+        np.pi + torch.arctan(w/h) + theta) * d + x_pos
+    obj_vertices[:, :, 2, 1] = torch.cos(
+        np.pi + torch.arctan(w/h) + theta) * d + y_pos
+    obj_vertices[:, :, 3,
+                 0] = torch.sin(-torch.arctan(w/h) + theta) * d + x_pos
+    obj_vertices[:, :, 3,
+                 1] = torch.cos(-torch.arctan(w/h) + theta) * d + y_pos
+
+    obj_rot_vertices[:, :, 1, :] = obj_vertices[:, :, 0, :]
+    obj_rot_vertices[:, :, 2, :] = obj_vertices[:, :, 1, :]
+    obj_rot_vertices[:, :, 3, :] = obj_vertices[:, :, 2, :]
+    obj_rot_vertices[:, :, 0, :] = obj_vertices[:, :, 3, :]
+
+    return obj_vertices, obj_rot_vertices
+
+
+@ torch.jit.script
+def get_occ_cells(Px, Py, vertices, rotated_vertices):
+    # type: (Tensor, Tensor, Tensor, Tensor) -> Tensor
+    num_obj = vertices.shape[1]
+    vertices = vertices.view(-1, 1, 1, num_obj*4, 2)
+    rotated_vertices = rotated_vertices.view(-1, 1, 1, num_obj*4, 2)
+    n = Py.shape[1]
+    num_envs = Py.shape[0]
+    b = vertices - rotated_vertices
+    device = Px.device
+
+    vertex_mask = torch.where(torch.mul(torch.sub(Px, vertices[:, :, :, :, 0]), b[:, :, :, :, 1]) -
+                              torch.mul(torch.sub(Py, vertices[:, :, :, :, 1]), b[:, :, :, :, 0]) <= 0, 0, 1)
+
+    mask_buf = torch.zeros((num_envs, n, n), device=device)
+    i = 0
+    while i < vertex_mask.shape[-1]:
+        temp_mask = torch.ones_like(mask_buf)
+        for j in range(4):
+            temp_mask = torch.mul(temp_mask, vertex_mask[:, :, :, i+j])
+        # overwrite to mask
+        mask_buf = torch.where(
+            temp_mask != 0, torch.ones_like(mask_buf), mask_buf)
+        i += 4
+
+    return mask_buf
+
+
+@ torch.jit.script
+def compute_occ_grid_mask(summit_occ_cells, boxes_occ_cells, walls_occ_cells):
+    # type: (Tensor, Tensor, Tensor) -> Tensor
+    occ_grid = boxes_occ_cells * 2
+    occ_grid = torch.where(summit_occ_cells > 0,
+                           summit_occ_cells * 3, occ_grid)
+    occ_grid = torch.where(walls_occ_cells > 0,
+                           walls_occ_cells, occ_grid)
+
+    return occ_grid
