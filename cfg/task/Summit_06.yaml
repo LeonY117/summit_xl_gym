@@ -6,13 +6,15 @@ physics_engine: ${..physics_engine}
 # if given, will override the device setting in gym.
 env:
   #  numEnvs: ${...num_envs}
-  numEnvs: ${resolve_default:4096,${...num_envs}}
-  envSpacing: 9
+  numEnvs: ${resolve_default:1024,${...num_envs}}
+  envSpacing: 15
   episodeLength: 200
   enableDebugVis: True
 
-  useHistory: True
-  numHistory: 5
+  useHistory: False
+  numHistory: 1
+  gridSize: 48
+  maxNumBoxes: 5
 
   clipActions: 1.0
 
@@ -44,13 +46,19 @@ env:
     assetFileName: "summit_xl_description/robots/summit_xls_std_fixed_camera.urdf"
 
   room_config: "corridor_1.yaml"
+  rooms:
+    - "map_1.yaml"
+    - "map_2.yaml"
+    - "map_3.yaml"
+    - "map_4.yaml"
 
   # boxes starting pos and rot
   useBoxes: True
+  defaultBoxWidth: 1
   randomize_box:
     randomize_pos: False
-    x_bound: [-0.9, 0.9]
-    y_bound: [-0.9, 0.9]
+    x_bound: [-1, 1]
+    y_bound: [-1, 1]
     randomize_rot: True
 
   # summit starting pos and rot
@@ -58,12 +66,12 @@ env:
     randomize_pos: False
     x_bound: [-1, 1]
     y_bound: [-1, 1]
-    whole_map_start_prob: 0
-    randomize_rot: False
+    whole_map_start_prob: 0.5
+    randomize_rot: True
 
   # goal position
   randomize_summit_goal:
-    randomize_pos: True
+    randomize_pos: False
     x_bound: [-1, 1]
     y_bound: [0.85, 0.9]
 

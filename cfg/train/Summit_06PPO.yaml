@@ -57,7 +57,7 @@ params:
         name: None
     cnn:
       type: conv2d
-      grid_size: 64
+      grid_size: 48
       initializer:
         name: default
       regularizer:
