@@ -1,0 +1,74 @@
+room_name: map 3
+room_width: 8
+room_height: 8
+
+wall_cfg:
+  wall_height: 2.0
+  wall_thickness: 0.1
+  walls:
+    - name: left_bound
+      pos_x: -4
+      pos_y: 0
+      length: 8
+      orientation: vertical
+    - name: right_bound
+      pos_x: 4
+      pos_y: 0
+      length: 8
+      orientation: vertical
+    - name: top_bound
+      pos_x: 0
+      pos_y: 4
+      length: 8
+      orientation: horizontal
+    - name: bottom_bound
+      pos_x: 0
+      pos_y: -4
+      length: 8
+      orientation: horizontal
+    - name: bound_right
+      pos_x: 1
+      pos_y: -2
+      length: 4
+      orientation: vertical
+    - name: bound_left
+      pos_x: -2
+      pos_y: 2
+      length: 4
+      orientation: vertical
+summit_goal_cfg:
+  goal_x: -3
+  goal_y: 3
+  goal_radius: 0.5
+use_box_goal: false
+box_goal_cfg:
+  goal_x: 0.0
+  goal_y: 0.0
+  goal_radius: 1
+box_cfg:
+  box_width: 1
+  boxes:
+    - pos_x: 1
+      pos_y: 3
+      prob: 0.7
+      random_pos: False
+    - pos_x: 1.8
+      pos_y: 1.2
+      prob: 0.9
+      random_pos: False
+    - pos_x: 0.2
+      pos_y: 1.2
+      prob: 0.5
+      random_pos: False
+    - pos_x: -2
+      pos_y: -2
+      prob: 0.4
+      random_pos: True
+    - pos_x: -10
+      pos_y: -11
+      prob: 0.1
+      random_pos: True
+
+summit_cfg:
+  pos_x: 2.5
+  pos_y: -3
