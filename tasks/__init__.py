@@ -6,7 +6,7 @@ from tasks.summit_03 import Summit as Summit_03
 from tasks.summit_04 import Summit as Summit_04
 from tasks.summit_05 import Summit as Summit_05
 from tasks.summit_06 import Summit as Summit_06
-
+from tasks.summit_07 import Summit as Summit_07
 
 isaacgym_task_map = {
     # "Summit": Summit,
@@ -17,4 +17,5 @@ isaacgym_task_map = {
     "Summit_04": Summit_04,
     "Summit_05": Summit_05,
     "Summit_06": Summit_06,
+    "Summit_07": Summit_07
 }
